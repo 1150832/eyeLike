@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run eyeLike",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/eyeLike/src/main",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/eyeLike/src",
+            "environment": [],
+            "externalConsole": true,
+            "MIMode": "lldb",
+            "preLaunchTask": "build eyeLike"
+        }
+    ]
+}
