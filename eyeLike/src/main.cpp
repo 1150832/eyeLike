@@ -3,6 +3,8 @@
 #include <opencv2/imgproc/imgproc.hpp>
 
 #include <iostream>
+#include <fstream>
+#include <string>
 #include <queue>
 #include <stdio.h>
 #include <math.h>
@@ -25,10 +27,11 @@
 
 /** Function Headers */
 void detectAndDisplay( cv::Mat frame );
+void printUsage();
 
 /** Global variables */
 //-- Note, either copy these two files from opencv/data/haarscascades to your current folder, or change these locations
-cv::String face_cascade_name = "../res/haarcascade_frontalface_alt.xml";
+cv::String face_cascade_name = "./res/haarcascade_frontalface_alt.xml";
 cv::CascadeClassifier face_cascade;
 std::string main_window_name = "Capture - Face detection";
 std::string face_window_name = "Capture - Face";
@@ -36,17 +39,103 @@ cv::RNG rng(12345);
 cv::Mat debugImage;
 cv::Mat skinCrCbHist = cv::Mat::zeros(cv::Size(256, 256), CV_8UC1);
 
+// Novas variáveis globais para funcionalidade de vídeo
+std::ofstream outputFile;
+bool saveToFile = false;
+int globalFrameNumber = 0;
+
+/**
+ * @function printUsage
+ */
+void printUsage() {
+  std::cout << "\n=== eyeLike - Eye Tracking Application ===\n\n";
+  std::cout << "Usage: eyeLike [options]\n\n";
+  std::cout << "Options:\n";
+  std::cout << "  (no arguments)          Run with webcam (default mode)\n";
+  std::cout << "  -c, --camera            Run with webcam\n";
+  std::cout << "  -v, --video <path>      Process video file\n";
+  std::cout << "  -o, --output <path>     Save results to CSV file\n";
+  std::cout << "  -h, --help              Show this help message\n\n";
+  std::cout << "Examples:\n";
+  std::cout << "  eyeLike                          # Use webcam\n";
+  std::cout << "  eyeLike -c                       # Use webcam (explicit)\n";
+  std::cout << "  eyeLike -v video.mp4             # Process video file\n";
+  std::cout << "  eyeLike -v video.mp4 -o out.csv  # Process video and save results\n\n";
+  std::cout << "Keyboard Controls:\n";
+  std::cout << "  'c' or 'q'  - Quit application\n";
+  std::cout << "  'f'         - Save current frame as image\n";
+  std::cout << "  'p'         - Pause video (video mode only)\n\n";
+}
+
 /**
  * @function main
  */
 int main( int argc, const char** argv ) {
   cv::Mat frame;
+  
+  // Variáveis para parsing de argumentos
+  std::string videoPath = "";
+  std::string outputPath = "";
+  bool useCamera = true;
+  
+  // Parse command line arguments
+  for (int i = 1; i < argc; i++) {
+    std::string arg = argv[i];
+    
+    if (arg == "-h" || arg == "--help") {
+      printUsage();
+      return 0;
+    }
+    else if (arg == "-c" || arg == "--camera") {
+      useCamera = true;
+    }
+    else if (arg == "-v" || arg == "--video") {
+      if (i + 1 < argc) {
+        videoPath = argv[++i];
+        useCamera = false;
+      } else {
+        std::cerr << "Error: --video requires a path argument\n";
+        printUsage();
+        return -1;
+      }
+    }
+    else if (arg == "-o" || arg == "--output") {
+      if (i + 1 < argc) {
+        outputPath = argv[++i];
+        saveToFile = true;
+      } else {
+        std::cerr << "Error: --output requires a path argument\n";
+        printUsage();
+        return -1;
+      }
+    }
+    else {
+      std::cerr << "Unknown argument: " << arg << "\n";
+      printUsage();
+      return -1;
+    }
+  }
 
   // Load the cascades
   if( !face_cascade.load( face_cascade_name ) ) { 
     printf("--(!)Error loading face cascade, please change face_cascade_name in source code.\n"); 
     return -1; 
   }
+  
+  // Open output file if specified
+  if (saveToFile) {
+    outputFile.open(outputPath.c_str());
+    if (!outputFile.is_open()) {
+      std::cerr << "Error: Could not open output file: " << outputPath << "\n";
+      return -1;
+    }
+    // Write CSV header
+    outputFile << "frame,face_x,face_y,face_width,face_height,";
+    outputFile << "right_eye_x,right_eye_y,left_eye_x,left_eye_y,";
+    outputFile << "single_eye_x,single_eye_y,global_eye_x,global_eye_y\n";
+    std::cout << "Saving results to: " << outputPath << "\n";
+  }
+  
   cv::namedWindow(main_window_name, CV_WINDOW_NORMAL);
   cv::moveWindow(main_window_name, 400, 100);
   cv::namedWindow(face_window_name, CV_WINDOW_NORMAL);
@@ -66,43 +155,143 @@ int main( int argc, const char** argv ) {
   ellipse(skinCrCbHist, cv::Point(113, 155), cv::Size(23, 15),
           43.0, 0.0, 360.0, cv::Scalar(255, 255, 255), -1);
 
+  // Informação sobre modo de operação
+  if (useCamera) {
+    std::cout << "Starting in CAMERA mode...\n";
+  } else {
+    std::cout << "Starting in VIDEO mode: " << videoPath << "\n";
+  }
+
   // I make an attempt at supporting both 2.x and 3.x OpenCV
 #if CV_MAJOR_VERSION < 3
-  CvCapture* capture = cvCaptureFromCAM( 0 );
+  CvCapture* capture;
+  
+  // Open video source based on mode
+  if (useCamera) {
+    capture = cvCaptureFromCAM(0);
+  } else {
+    capture = cvCaptureFromFile(videoPath.c_str());
+  }
+  
   if( capture ) {
+    // Get video properties for video files
+    if (!useCamera) {
+      double fps = cvGetCaptureProperty(capture, CV_CAP_PROP_FPS);
+      int totalFrames = (int)cvGetCaptureProperty(capture, CV_CAP_PROP_FRAME_COUNT);
+      std::cout << "Video properties:\n";
+      std::cout << "  FPS: " << fps << "\n";
+      std::cout << "  Total frames: " << totalFrames << "\n\n";
+    }
+    
     while( true ) {
       frame = cvQueryFrame( capture );
 #else
-  cv::VideoCapture capture("/Users/ronaldo/Movies/TEDI/Filme, 09-11-25 - 19.48.mov");
+  cv::VideoCapture capture;
+  
+  // Open video source based on mode
+  if (useCamera) {
+    capture.open(0);
+  } else {
+    capture.open(videoPath);
+  }
+  
   if( capture.isOpened() ) {
+    // Get video properties for video files
+    if (!useCamera) {
+      double fps = capture.get(cv::CAP_PROP_FPS);
+      int totalFrames = (int)capture.get(cv::CAP_PROP_FRAME_COUNT);
+      std::cout << "Video properties:\n";
+      std::cout << "  FPS: " << fps << "\n";
+      std::cout << "  Total frames: " << totalFrames << "\n\n";
+    }
+    
     while( true ) {
       capture.read(frame);
 #endif
-      // mirror it
-      cv::flip(frame, frame, 1);
+      
+      // Check if frame is valid
+      if( frame.empty() ) {
+        if (!useCamera) {
+          std::cout << "\nEnd of video reached.\n";
+          std::cout << "Processed " << globalFrameNumber << " frames total.\n";
+        } else {
+          printf(" --(!) No captured frame -- Break!");
+        }
+        break;
+      }
+      
+      globalFrameNumber++;
+      
+      // mirror it (only for camera mode)
+      if (useCamera) {
+        cv::flip(frame, frame, 1);
+      }
+      
       frame.copyTo(debugImage);
 
       // Apply the classifier to the frame
       if( !frame.empty() ) {
 	//std::cout << "Frame size: " << frame.cols << ", " << frame.rows << "\n";
         detectAndDisplay( frame );
-
-
       }
       else {
         printf(" --(!) No captured frame -- Break!");
         break;
       }
 
+      // Show progress for video files
+      if (!useCamera && globalFrameNumber % 30 == 0) {
+#if CV_MAJOR_VERSION < 3
+        int totalFrames = (int)cvGetCaptureProperty(capture, CV_CAP_PROP_FRAME_COUNT);
+#else
+        int totalFrames = (int)capture.get(cv::CAP_PROP_FRAME_COUNT);
+#endif
+        if (totalFrames > 0) {
+          double progress = (100.0 * globalFrameNumber) / totalFrames;
+          std::cout << "Processing: frame " << globalFrameNumber << " / " << totalFrames 
+                    << " (" << progress << "%)\n";
+        }
+      }
+
       imshow(main_window_name,debugImage);
 
-      int c = cv::waitKey(10);
-      if( (char)c == 'c' ) { break; }
+      // Different wait time for video vs camera
+      int waitTime = useCamera ? 10 : 1;
+      int c = cv::waitKey(waitTime);
+      
+      if( (char)c == 'c' || (char)c == 'q' ) { 
+        std::cout << "\nExiting...\n";
+        break; 
+      }
       if( (char)c == 'f' ) {
-        imwrite("frame.png",frame);
+        std::string filename = "frame_" + std::to_string(globalFrameNumber) + ".png";
+        imwrite(filename, frame);
+        std::cout << "Saved frame to: " << filename << "\n";
+      }
+      if( (char)c == 'p' && !useCamera ) {
+        std::cout << "Video PAUSED. Press any key to continue...\n";
+        cv::waitKey(0);
+        std::cout << "Resuming...\n";
       }
 
     }
+  }
+  else {
+    std::cerr << "Error: Could not open video source\n";
+    if (saveToFile) outputFile.close();
+    return -1;
+  }
+
+  // Cleanup
+#if CV_MAJOR_VERSION < 3
+  cvReleaseCapture(&capture);
+#else
+  capture.release();
+#endif
+
+  if (saveToFile) {
+    outputFile.close();
+    std::cout << "\nResults saved to: " << outputPath << "\n";
   }
 
   releaseCornerKernels();
@@ -170,6 +359,16 @@ cv::Rect findEyes(cv::Mat frame_gray, cv::Rect face) {
   circle(debugFace, leftPupil, 3, 1234);
   std::cout << "  RE: " << rightPupil.x << ", " << rightPupil.y << "\n";
   std::cout << "  LE: " << leftPupil.x  << ", " << leftPupil.y  << "\n";
+  
+  // Save to CSV file if enabled
+  if (saveToFile) {
+    outputFile << globalFrameNumber << ",";
+    outputFile << face.x << "," << face.y << "," << face.width << "," << face.height << ",";
+    outputFile << rightPupil.x << "," << rightPupil.y << ",";
+    outputFile << leftPupil.x << "," << leftPupil.y << ",";
+    outputFile << singleEye.x << "," << singleEye.y << ",";
+    outputFile << (singleEye.x + face.x) << "," << (singleEye.y + face.y) << "\n";
+  }
 
   //-- Find Eye Corners
   if (kEnableEyeCorner) {
