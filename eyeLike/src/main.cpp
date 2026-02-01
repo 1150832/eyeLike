@@ -12,6 +12,7 @@
 #include "constants.h"
 #include "findEyeCenter.h"
 #include "findEyeCorner.h"
+#include "MqttPublisher.h"
 
 /* Attempt at supporting openCV version 4.0.1 or higher */
 #if CV_MAJOR_VERSION >= 4
@@ -39,7 +40,16 @@ cv::RNG rng(12345);
 cv::Mat debugImage;
 cv::Mat skinCrCbHist = cv::Mat::zeros(cv::Size(256, 256), CV_8UC1);
 
-// Novas variáveis globais para funcionalidade de vídeo
+// MQTT variables
+MqttPublisher mqttPublisher;
+bool useMqtt = false;
+std::string mqttBroker = "tcp://localhost:1883";
+std::string mqttTopic = "eyetracker/coordinates";
+std::string mqttClientId = "eyeLike";
+
+MqttMode mqttMode = MqttMode::PRODUCTION;
+
+// Novas variables for video manipulation
 std::ofstream outputFile;
 bool saveToFile = false;
 int globalFrameNumber = 0;
@@ -55,12 +65,17 @@ void printUsage() {
   std::cout << "  -c, --camera            Run with webcam\n";
   std::cout << "  -v, --video <path>      Process video file\n";
   std::cout << "  -o, --output <path>     Save results to CSV file\n";
+  std::cout << "  -m, --mqtt <broker>     Enable MQTT publishing (default: tcp://localhost:1883)\n";
+  std::cout << "  -t, --topic <topic>     MQTT topic (default: eyetracker/coordinates)\n";
+  std::cout << "  --client-id <id>        MQTT client ID (default: eyeLike)\n";
+  std::cout << "  --mqtt-mode <mode>      MQTT mode: production, debug, heartbeat (default: production)\n";
   std::cout << "  -h, --help              Show this help message\n\n";
   std::cout << "Examples:\n";
   std::cout << "  eyeLike                          # Use webcam\n";
   std::cout << "  eyeLike -c                       # Use webcam (explicit)\n";
   std::cout << "  eyeLike -v video.mp4             # Process video file\n";
   std::cout << "  eyeLike -v video.mp4 -o out.csv  # Process video and save results\n\n";
+  std::cout << "  eyeLike -v video.mp4 -m tcp://localhost:1883  # With MQTT\n";
   std::cout << "Keyboard Controls:\n";
   std::cout << "  'c' or 'q'  - Quit application\n";
   std::cout << "  'f'         - Save current frame as image\n";
@@ -109,6 +124,47 @@ int main( int argc, const char** argv ) {
         return -1;
       }
     }
+    else if (arg == "-m" || arg == "--mqtt") {
+      if (i + 1 < argc) {
+        mqttBroker = argv[++i];
+        useMqtt = true;
+      } else {
+        std::cerr << "Error: --mqtt requires a broker URL\n";
+        printUsage();
+        return -1;
+      }
+    }
+    else if (arg == "-t" || arg == "--topic") {
+      if (i + 1 < argc) {
+        mqttTopic = argv[++i];
+      } else {
+        std::cerr << "Error: --topic requires a topic name\n";
+        printUsage();
+        return -1;
+      }
+    }
+    else if (arg == "--client-id") {
+      if (i + 1 < argc) {
+        mqttClientId = argv[++i];
+      } else {
+        std::cerr << "Error: --client-id requires an ID\n";
+        printUsage();
+        return -1;
+      }
+    }
+    else if (arg == "--mqtt-mode") {
+      if (i + 1 < argc) {
+        std::string modeStr = argv[++i];
+        if (modeStr == "production") mqttMode = MqttMode::PRODUCTION;
+        else if (modeStr == "debug") mqttMode = MqttMode::DEBUG;
+        else if (modeStr == "heartbeat") mqttMode = MqttMode::HEARTBEAT;
+        else {
+          std::cerr << "Unknown MQTT mode: " << modeStr << "\n";
+          printUsage();
+          return -1;
+        } 
+      }
+    }
     else {
       std::cerr << "Unknown argument: " << arg << "\n";
       printUsage();
@@ -122,6 +178,19 @@ int main( int argc, const char** argv ) {
     return -1; 
   }
   
+  // Initialize MQTT if enabled
+  if (useMqtt) {
+    std::cout << "\n=== MQTT Configuration ===\n";
+    std::cout << "Broker: " << mqttBroker << "\n";
+    std::cout << "Topic: " << mqttTopic << "\n";
+    std::cout << "Client ID: " << mqttClientId << "\n";
+    
+      if (!mqttPublisher.connect(mqttBroker, mqttClientId, mqttTopic, mqttMode)) {
+        std::cerr << "Warning: MQTT connection failed. Continuing without MQTT.\n";
+        useMqtt = false;
+      }
+  }
+
   // Open output file if specified
   if (saveToFile) {
     outputFile.open(outputPath.c_str());
@@ -294,6 +363,11 @@ int main( int argc, const char** argv ) {
     std::cout << "\nResults saved to: " << outputPath << "\n";
   }
 
+  // Cleanup MQTT
+  if (useMqtt) {
+    mqttPublisher.disconnect();
+  }
+
   releaseCornerKernels();
 
   return 0;
@@ -364,10 +438,20 @@ cv::Rect findEyes(cv::Mat frame_gray, cv::Rect face) {
   if (saveToFile) {
     outputFile << globalFrameNumber << ",";
     outputFile << face.x << "," << face.y << "," << face.width << "," << face.height << ",";
-    outputFile << rightPupil.x << "," << rightPupil.y << ",";
-    outputFile << leftPupil.x << "," << leftPupil.y << ",";
+    outputFile << (rightPupil.x + face.x) << "," << (rightPupil.y + face.y) << ",";
+    outputFile << (leftPupil.x + face.x) << "," << (leftPupil.y + face.y) << ",";
     outputFile << singleEye.x << "," << singleEye.y << ",";
     outputFile << (singleEye.x + face.x) << "," << (singleEye.y + face.y) << "\n";
+  }
+
+  // Publish to MQTT if enabled
+  if (useMqtt) {
+    mqttPublisher.publishEyeData(
+      globalFrameNumber,
+      face.x, face.y, face.width, face.height,
+      rightPupil.x + face.x, rightPupil.y + face.y,  // Add face.x, face.y
+      leftPupil.x + face.x, leftPupil.y + face.y     // Add face.x, face.y
+    );
   }
 
   //-- Find Eye Corners
