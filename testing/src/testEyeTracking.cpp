@@ -524,7 +524,7 @@ int main(int argc, char** argv) {
     displayMetrics();
     
     // Save report
-    std::string reportFile = "test_report.txt";
+    std::string reportFile = "testing/test_reports/test_report.txt";
     saveMetricsReport(reportFile);
     
     // Create visualization window

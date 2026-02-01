@@ -1,16 +1,20 @@
 #!/bin/bash
+# Move to the project root from /scripts
+cd "$(dirname "$0")/.."
 
 if [ $# -lt 1 ]; then
     echo "Usage: $0 <video_file>"
-    echo "Example: $0 test_data/my_video.mp4"
+    echo "Example: $0 testing/test_data/my_video.mp4"
     exit 1
 fi
 
 VIDEO="$1"
 BASENAME=$(basename "$VIDEO" | sed 's/\.[^.]*$//')
-GT="test_data/ground_truth_${BASENAME}.json"
-PRED="test_data/predictions_${BASENAME}.csv"
-REPORT="test_reports/report_${BASENAME}.txt"
+
+# Updated paths for the consolidated testing structure
+GT="testing/test_data/ground_truth_${BASENAME}.json"
+PRED="testing/test_data/predictions_${BASENAME}.csv"
+REPORT="testing/test_reports/report_${BASENAME}.txt"
 
 echo "╔═══════════════════════════════════════╗"
 echo "║  Eye Tracking Quality Test Pipeline  ║"
@@ -28,23 +32,12 @@ if [ ! -f "$GT" ]; then
     if [ "$response" = "y" ] || [ "$response" = "Y" ]; then
         echo ""
         echo "Opening annotation tool..."
-        echo ""
-        echo "Instructions:"
-        echo "  1. Click LEFT eye (blue)"
-        echo "  2. Click RIGHT eye (green)"
-        echo "  3. Press 'N' for next unannotated frame"
-        echo "  4. Press 'S' to save"
-        echo "  5. Press 'Q' to quit"
-        echo ""
-        read -p "Press Enter to start..."
         
-        ./annotate.sh "$VIDEO"
+        # Call the relocated annotation script
+        ./scripts/annotate.sh "$VIDEO"
         
-        # Check if GT was created in testing/build
-        if [ -f "testing/build/ground_truth_${BASENAME}.json" ]; then
-            mv "testing/build/ground_truth_${BASENAME}.json" "$GT"
-            echo "✓ Ground truth saved to: $GT"
-        fi
+        # Note: annotationTool now saves directly to testing/test_data/ 
+        # via the "../../" path adjustment we made in the C++ source.
         
         if [ ! -f "$GT" ]; then
             echo "✗ Ground truth not created. Exiting."
@@ -52,7 +45,7 @@ if [ ! -f "$GT" ]; then
         fi
     else
         echo "Exiting. Create ground truth with:"
-        echo "  ./annotate.sh $VIDEO"
+        echo "  ./scripts/annotate.sh $VIDEO"
         exit 1
     fi
 fi
@@ -60,15 +53,15 @@ fi
 echo "✓ Ground truth: $GT"
 echo ""
 
-# Generate predictions
+# Step 1: Generate predictions
 echo "Step 1: Generating predictions with eyeLike..."
-
-if [ ! -f "build/bin/eyeLike" ]; then
-    echo "✗ eyeLike not found. Build it with: ./cmakeBuild.sh"
+if [ ! -f "build/eyeLike" ]; then
+    echo "✗ eyeLike not found. Build it with: ./scripts/cmakeBuild.sh"
     exit 1
 fi
 
-build/bin/eyeLike -v "$VIDEO" -o "$PRED"
+# Run eyeLike from root
+./build/eyeLike -v "$VIDEO" -o "$PRED"
 
 if [ $? -ne 0 ]; then
     echo "✗ eyeLike failed"
@@ -78,15 +71,16 @@ fi
 echo "✓ Predictions: $PRED"
 echo ""
 
-# Run tests
+# Step 2: Run quality tests
 echo "Step 2: Running quality tests..."
-./runTest.sh "$VIDEO" "$GT" "$PRED"
+./scripts/runTest.sh "$VIDEO" "$GT" "$PRED"
 
-# Move report
-if [ -f "testing/build/test_report.txt" ]; then
-    mv "testing/build/test_report.txt" "$REPORT"
+# Move and rename the generic report to the specific BASENAME report
+# testEyeTracking now saves to testing/test_reports/test_report.txt
+if [ -f "testing/test_reports/test_report.txt" ]; then
+    mv "testing/test_reports/test_report.txt" "$REPORT"
     echo ""
-    echo "✓ Report: $REPORT"
+    echo "✓ Report saved to: $REPORT"
 fi
 
 echo ""

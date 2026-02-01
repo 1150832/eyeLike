@@ -348,7 +348,7 @@ std::string getJsonFilename(const std::string& videoPath) {
         filename = filename.substr(0, lastDot);
     }
     
-    return "test_data/ground_truth_" + filename + ".json";
+    return "testing/test_data/ground_truth_" + filename + ".json";
 }
 
 // Display help information
