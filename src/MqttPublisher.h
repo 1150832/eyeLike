@@ -10,9 +10,9 @@ namespace mqtt {
 
 // MQTT publishing modes
 enum class MqttMode {
-    PRODUCTION,    // Separate topics, optimized messages
-    DEBUG,         // Complete JSON payloads
-    HEARTBEAT      // Minimal, only on changes
+    PRODUCTION,    // Separate topics, optimized messages, QoS 0
+    DEBUG,         // Complete JSON payloads, QoS 0
+    HEARTBEAT      // Minimal, only on changes, QoS 1, Retained
 };
 
 class MqttPublisher {
@@ -32,7 +32,8 @@ private:
     
     // Helper methods
     std::string getMacAddress();
-    void publishToTopic(const std::string& subtopic, const std::string& payload, int qos = 0);
+    // UPDATED: Added 'retained' parameter
+    void publishToTopic(const std::string& subtopic, const std::string& payload, int qos = 0, bool retained = false);
     bool hasSignificantChange(int newFaceX, int newFaceY, int newFaceW, int newFaceH,
                                int newLeftX, int newLeftY, int newRightX, int newRightY);
 
