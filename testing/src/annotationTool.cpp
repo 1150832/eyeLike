@@ -21,11 +21,10 @@ struct EyeAnnotation {
     cv::Point right_eye;
     bool left_set;
     bool right_set;
-    bool eyes_closed; // NOVO: Flag para olhos fechados
+    bool eyes_closed;
     
     EyeAnnotation() : left_eye(-1, -1), right_eye(-1, -1), left_set(false), right_set(false), eyes_closed(false) {}
     
-    // Completo se os olhos estiverem fechados OU se ambos os pontos estiverem definidos
     bool isComplete() const {
         return eyes_closed || (left_set && right_set);
     }
@@ -35,7 +34,7 @@ struct EyeAnnotation {
         right_eye = cv::Point(-1, -1);
         left_set = false;
         right_set = false;
-        eyes_closed = false; // Limpa também a flag
+        eyes_closed = false;
     }
 };
 
@@ -46,26 +45,33 @@ cv::Mat currentFrameImage;
 cv::Mat displayImage;      
 cv::VideoCapture videoCapture;
 std::string videoFilename;
+std::string currentJsonPath; // NOVO: Caminho global para o Auto-Save
 int totalFrames = 0;
 double fps = 30.0;
 bool isDirty = false;
 bool showHelp = true;      
 
+// Auto-Save properties
+int unsavedChanges = 0;
+const int AUTOSAVE_THRESHOLD = 20;
+
 // Image Enhancement Parameters
-double gamma_val = 1.0;    // 1.0 = neutral
-int brightness_val = 0;    // -100 to 100
-bool use_clahe = false;    // Contrast Limited Adaptive Histogram Equalization
+double gamma_val = 1.0;
+int brightness_val = 0;
+bool use_clahe = false;
 
 // --- Function Declarations ---
 void updateDisplay();
 void processImage();
 void drawUI(cv::Mat& image);
+void drawTimeline(cv::Mat& image); // NOVO: Função da Timeline
 void saveAnnotations(const std::string& filename);
 bool loadAnnotations(const std::string& filename);
 void goToFrame(int frameNum);
 int findNextUnannotated(int startFrame, bool forward);
 std::string getJsonFilename(const std::string& videoPath);
 void propagateAnnotations(int startFrame, int count); 
+void triggerAutoSaveCheck(); // NOVO: Função de verificação do Auto-Save
 
 // --- Image Processing ---
 void processImage() {
@@ -73,7 +79,6 @@ void processImage() {
 
     cv::Mat temp = currentFrameImage.clone();
 
-    // 1. CLAHE (Adaptive Contrast) - Best for dark eyes
     if (use_clahe) {
         cv::Mat lab_image;
         cv::cvtColor(temp, lab_image, cv::COLOR_BGR2Lab);
@@ -88,12 +93,10 @@ void processImage() {
         cv::cvtColor(lab_image, temp, cv::COLOR_Lab2BGR);
     }
 
-    // 2. Brightness
     if (brightness_val != 0) {
         temp.convertTo(temp, -1, 1, brightness_val);
     }
 
-    // 3. Gamma Correction
     if (gamma_val != 1.0) {
         cv::Mat lookUpTable(1, 256, CV_8U);
         uchar* p = lookUpTable.ptr();
@@ -105,7 +108,14 @@ void processImage() {
     displayImage = temp;
 }
 
-// --- Predictive Logic ---
+// --- Predictive & AutoSave Logic ---
+void triggerAutoSaveCheck() {
+    if (unsavedChanges >= AUTOSAVE_THRESHOLD) {
+        std::cout << "\n[AUTO-SAVE] Saving progress after " << unsavedChanges << " changes...\n";
+        saveAnnotations(currentJsonPath);
+    }
+}
+
 void propagateAnnotations(int startFrame, int count) {
     if (annotations.find(startFrame) == annotations.end() || !annotations[startFrame].isComplete()) {
         std::cout << "Cannot propagate: Current frame is incomplete.\n";
@@ -122,6 +132,8 @@ void propagateAnnotations(int startFrame, int count) {
     }
     std::cout << "Propagated annotations to next " << filled << " frames.\n";
     isDirty = true;
+    unsavedChanges += filled;
+    triggerAutoSaveCheck();
 }
 
 // --- Mouse Callback ---
@@ -130,13 +142,11 @@ void mouseCallback(int event, int x, int y, int flags, void* userdata) {
     
     EyeAnnotation& ann = annotations[currentFrame];
     
-    // Bloquear marcações manuais se a flag "Olhos Fechados" estiver ativa
     if (ann.eyes_closed) {
         std::cout << "Olhos marcados como fechados. Remova a flag (tecla 'x') para adicionar pontos manuais.\n";
         return;
     }
     
-    // Smart Edit Logic
     if (!ann.left_set) {
         ann.left_eye = cv::Point(x, y);
         ann.left_set = true;
@@ -151,18 +161,54 @@ void mouseCallback(int event, int x, int y, int flags, void* userdata) {
     }
     
     isDirty = true;
+    unsavedChanges++;
     updateDisplay();
+    triggerAutoSaveCheck();
 }
 
-// --- UI Drawing ---
+// --- UI & Timeline Drawing ---
+void drawTimeline(cv::Mat& img) {
+    int timeline_h = 20; // Altura da barra de progresso
+    int timeline_y = img.rows - timeline_h; // Posição Y na base da janela
+    
+    // Fundo da timeline (cinzento escuro = não anotado)
+    cv::rectangle(img, cv::Point(0, timeline_y), cv::Point(img.cols, img.rows), cv::Scalar(50, 50, 50), -1);
+
+    if (totalFrames > 0) {
+        float rect_w = (float)img.cols / totalFrames; // Largura em pixeis por cada frame
+        
+        for (const auto& pair : annotations) {
+            int frameIdx = pair.first;
+            const EyeAnnotation& ann = pair.second;
+            
+            if (ann.isComplete()) {
+                // Verde para Olhos Abertos, Amarelo para Olhos Fechados
+                cv::Scalar color = ann.eyes_closed ? cv::Scalar(0, 255, 255) : cv::Scalar(0, 255, 0); 
+                
+                int x1 = (int)(frameIdx * rect_w);
+                int x2 = (int)((frameIdx + 1) * rect_w);
+                if (x2 == x1) x2 = x1 + 1; // Garante que a frame desenha pelo menos 1 pixel
+                
+                cv::rectangle(img, cv::Point(x1, timeline_y), cv::Point(x2, img.rows), color, -1);
+            }
+        }
+        
+        // Desenhar cursor vermelho da frame atual
+        int cur_x = (int)(currentFrame * rect_w);
+        cv::line(img, cv::Point(cur_x, timeline_y - 10), cv::Point(cur_x, img.rows), cv::Scalar(0, 0, 255), 2);
+    }
+}
+
 void drawUI(cv::Mat& img) {
-    if (!showHelp) return;
+    if (!showHelp) {
+        drawTimeline(img); // Desenha sempre a timeline mesmo se o menu de ajuda estiver escondido
+        return;
+    }
 
     int y_start = 20;
     int line_h = 18;
-    cv::Scalar txt_col(0, 255, 100); // Bright Green
+    cv::Scalar txt_col(0, 255, 100);
     
-    // Background box
     cv::Mat overlay;
     img.copyTo(overlay);
     cv::rectangle(overlay, cv::Point(0, 0), cv::Point(300, 520), cv::Scalar(20,20,20), -1);
@@ -180,7 +226,7 @@ void drawUI(cv::Mat& img) {
     drawLine("-----------------------------");
     drawLine("[1] Edit LEFT Eye (Blue)");
     drawLine("[2] Edit RIGHT Eye (Green)");
-    drawLine("[X] Toggle EYES CLOSED", cv::Scalar(255, 100, 100)); // NOVO
+    drawLine("[X] Toggle EYES CLOSED", cv::Scalar(255, 100, 100)); 
     drawLine("[Backsp] Clear Frame");
     drawLine("-----------------------------");
     drawLine("[F] PREDICT NEXT 15 FRAMES", cv::Scalar(0, 150, 255));
@@ -199,10 +245,9 @@ void drawUI(cv::Mat& img) {
     drawLine("[ESC] Quit");
     
     // Status
-    y_start = img.rows - 50;
+    y_start = img.rows - 70; // Subimos um pouco para não chocar com a timeline
     std::string status = "STATUS: ";
     
-    // Atualização visual do estado
     if (annotations[currentFrame].eyes_closed) {
         status += "EYES CLOSED (Skipped)";
         cv::putText(img, status, cv::Point(10, y_start), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(100,100,255), 2);
@@ -216,6 +261,9 @@ void drawUI(cv::Mat& img) {
     std::stringstream ss2;
     ss2 << "Frame: " << currentFrame << "/" << totalFrames;
     cv::putText(img, ss2.str(), cv::Point(10, y_start + 30), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255,255,255), 1);
+    
+    // NOVO: Chamada para desenhar a barra no fundo
+    drawTimeline(img);
 }
 
 void updateDisplay() {
@@ -223,7 +271,6 @@ void updateDisplay() {
     
     processImage(); 
     
-    // Desenhar Marcadores apenas se os olhos não estiverem marcados como fechados
     if (annotations.count(currentFrame) && !annotations[currentFrame].eyes_closed) {
         const EyeAnnotation& ann = annotations[currentFrame];
         if (ann.left_set) {
@@ -289,15 +336,17 @@ void saveAnnotations(const std::string& filename) {
         file << "    {\n";
         file << "      \"frame_number\": " << pair.first << ",\n";
         file << "      \"timestamp\": " << std::fixed << std::setprecision(3) << (pair.first / fps) << ",\n";
-        file << "      \"eyes_closed\": " << (ann.eyes_closed ? "true" : "false") << ",\n"; // NOVO
+        file << "      \"eyes_closed\": " << (ann.eyes_closed ? "true" : "false") << ",\n";
         file << "      \"left_eye\": {\"x\": " << ann.left_eye.x << ", \"y\": " << ann.left_eye.y << "},\n";
         file << "      \"right_eye\": {\"x\": " << ann.right_eye.x << ", \"y\": " << ann.right_eye.y << "}\n";
         file << "    }";
     }
     file << "\n  ]\n}\n";
     file.close();
+    
     std::cout << "Saved " << filename << "\n";
     isDirty = false;
+    unsavedChanges = 0; // Reset ao contador do Auto-Save
 }
 
 bool loadAnnotations(const std::string& filename) {
@@ -309,14 +358,14 @@ bool loadAnnotations(const std::string& filename) {
     
     int frameNum = -1;
     int lx = -1, ly = -1, rx = -1, ry = -1;
-    bool closed = false; // Estado local de parsing
+    bool closed = false; 
     
     while (std::getline(file, line)) {
         if (line.find("\"frame_number\":") != std::string::npos) {
              sscanf(line.c_str(), "      \"frame_number\": %d,", &frameNum);
-             closed = false; // Reset no início de nova frame
+             closed = false; 
         }
-        else if (line.find("\"eyes_closed\":") != std::string::npos) { // NOVO PARSER
+        else if (line.find("\"eyes_closed\":") != std::string::npos) {
              if (line.find("true") != std::string::npos) closed = true;
         }
         else if (line.find("\"left_eye\":") != std::string::npos) {
@@ -330,7 +379,7 @@ bool loadAnnotations(const std::string& filename) {
                  ann.right_eye = cv::Point(rx, ry); 
                  if (lx != -1 && ly != -1) ann.left_set = true;
                  if (rx != -1 && ry != -1) ann.right_set = true;
-                 ann.eyes_closed = closed; // Carrega a flag
+                 ann.eyes_closed = closed; 
                  
                  annotations[frameNum] = ann;
                  frameNum = -1;
@@ -342,16 +391,13 @@ bool loadAnnotations(const std::string& filename) {
 }
 
 std::string getJsonFilename(const std::string& videoPath) {
-    // Find dir where video is located
     size_t lastSlash = videoPath.find_last_of("/\\");
     std::string dir = (lastSlash == std::string::npos) ? "." : videoPath.substr(0, lastSlash);
     
-    // Extract filename without extension
     std::string filename = (lastSlash == std::string::npos) ? videoPath : videoPath.substr(lastSlash + 1);
     size_t lastDot = filename.find_last_of('.');
     if (lastDot != std::string::npos) filename = filename.substr(0, lastDot);
     
-    // Save JSON in the same dir
     return dir + "/ground_truth_" + filename + ".json";
 }
 
@@ -370,10 +416,12 @@ int main(int argc, char** argv) {
     
     totalFrames = (int)videoCapture.get(cv::CAP_PROP_FRAME_COUNT);
     fps = videoCapture.get(cv::CAP_PROP_FPS);
-    std::string jsonPath = getJsonFilename(videoFilename);
-    if (argc >= 3) jsonPath = argv[2]; 
     
-    loadAnnotations(jsonPath);
+    // Configura a variável global de destino do JSON
+    currentJsonPath = getJsonFilename(videoFilename);
+    if (argc >= 3) currentJsonPath = argv[2]; 
+    
+    loadAnnotations(currentJsonPath);
     
     cv::namedWindow("Eye Annotation Tool", CV_WINDOW_NORMAL);
     cv::setMouseCallback("Eye Annotation Tool", mouseCallback, nullptr);
@@ -403,30 +451,37 @@ int main(int argc, char** argv) {
             case 'x':
                 annotations[currentFrame].eyes_closed = !annotations[currentFrame].eyes_closed;
                 if (annotations[currentFrame].eyes_closed) {
-                    // Limpa cliques acidentais se existirem
                     annotations[currentFrame].left_set = false;
                     annotations[currentFrame].right_set = false;
                 }
                 isDirty = true;
+                unsavedChanges++;
                 updateDisplay();
+                triggerAutoSaveCheck();
                 break;
 
             // Editing
             case '1': 
                 annotations[currentFrame].left_set = false;
+                unsavedChanges++;
                 updateDisplay();
+                triggerAutoSaveCheck();
                 break;
             case '2': 
                 annotations[currentFrame].right_set = false;
+                unsavedChanges++;
                 updateDisplay();
+                triggerAutoSaveCheck();
                 break;
-            case 8: // Backspace (Mac sometimes sends 127)
+            case 8: 
             case 127: 
                 annotations[currentFrame].clear(); 
+                unsavedChanges++;
                 updateDisplay(); 
+                triggerAutoSaveCheck();
                 break;
                 
-            // Image Enhancement (No Conflicts)
+            // Image Enhancement
             case 'w': brightness_val += 5; updateDisplay(); break;
             case 's': brightness_val -= 5; updateDisplay(); break;
             case 'e': gamma_val += 0.1; updateDisplay(); break;
@@ -435,12 +490,12 @@ int main(int argc, char** argv) {
             case 't': brightness_val=0; gamma_val=1.0; use_clahe=false; updateDisplay(); break;
             
             // File
-            case 'm': saveAnnotations(jsonPath); break;
+            case 'm': saveAnnotations(currentJsonPath); break;
         }
     }
     
     if (isDirty) {
-        saveAnnotations(jsonPath);
+        saveAnnotations(currentJsonPath);
     }
     
     videoCapture.release();
