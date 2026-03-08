@@ -1,424 +1,114 @@
-# Eye Tracking Testing Framework for TEDI Project
+# Eye Tracking Testing Framework & Annotation Tool
 
-A comprehensive testing framework for evaluating eye tracking quality using ground truth annotations.
+Este repositório inclui um ecossistema completo para testar, anotar e avaliar a precisão do algoritmo `eyeLike`. As ferramentas foram desenhadas para serem robustas, altamente visuais e gerarem relatórios de qualidade académica para análise de dados.
 
-## Overview
+## 🚀 Como Compilar as Ferramentas
 
-This framework consists of two C++ tools:
-
-1. **annotationTool** - Interactive GUI for manually annotating eye positions in videos
-2. **testEyeTracking** - Automated testing tool that compares eyeLike predictions against ground truth
-
-## Features
-
-### Annotation Tool
-- ✅ Fast OpenCV-based GUI
-- ✅ Frame-by-frame navigation
-- ✅ Visual markers for left/right eye positions
-- ✅ Jump to next unannotated frame
-- ✅ Export/import JSON annotations
-- ✅ Auto-save prompts
-- ✅ Keyboard shortcuts for efficiency
-
-### Testing Tool
-- ✅ Automatic error metrics calculation
-- ✅ Visual comparison overlay
-- ✅ Per-frame error visualization
-- ✅ Statistical analysis (mean, std dev, max)
-- ✅ Accuracy threshold reporting
-- ✅ Detailed CSV report generation
-
-## Installation
-
-### Prerequisites
+As ferramentas de teste partilham o mesmo sistema de build do projeto principal (CMake). Para compilar as ferramentas de anotação e avaliação, corre o seguinte script na raiz do projeto:
 
 ```bash
-# Ubuntu/Debian
-sudo apt-get install build-essential cmake
-sudo apt-get install libopencv-dev
-
-# macOS (with Homebrew)
-brew install opencv
-
-# Fedora/RHEL
-sudo dnf install opencv-devel
+./scripts/buildTesting.sh
 ```
-
-### Build
-
-```bash
-# Clone or navigate to your TEDI project directory
-cd path/to/TEDI
-
-# Place the tool files in your project
-# - annotationTool.cpp
-# - testEyeTracking.cpp
-# - Makefile
-
-# Build both tools
-make
-
-# Or build individually
-make annotation  # Only annotation tool
-make test       # Only testing tool
-
-# Optional: Install system-wide
-sudo make install
-```
-
-## Usage
-
-### Step 1: Create Ground Truth Annotations
-
-```bash
-./annotationTool test_video.mp4
-```
-
-**Workflow:**
-1. Video loads in window
-2. Click on **LEFT eye** (blue marker appears)
-3. Click on **RIGHT eye** (green marker appears)
-4. Navigate to next frame (arrow keys or buttons)
-5. Repeat for desired frames (every 10-30 frames recommended)
-6. Press **'S'** to save annotations
-
-**Keyboard Controls:**
-```
-Navigation:
-  →, D          Next frame
-  ←, A          Previous frame
-  Page Down     +10 frames
-  Page Up       -10 frames
-  Home          +30 frames
-  End           -30 frames
-  N             Jump to next unannotated
-  P             Jump to previous unannotated
-
-Annotation:
-  Left Click    Mark eye position
-  C, Delete     Clear current frame
-  S             Save to JSON
-  L             Load existing JSON
-  
-Other:
-  H, ?          Show help
-  Q, ESC        Quit (with save prompt)
-```
-
-**Output:** `ground_truth_test_video.json`
-
-### Step 2: Generate Predictions with eyeLike
-
-```bash
-# Run your existing eyeLike code on the same video
-./eyeLike -v test_video.mp4 -o predictions.csv
-```
-
-This generates a CSV file with columns:
-```
-frame,face_x,face_y,face_width,face_height,right_eye_x,right_eye_y,left_eye_x,left_eye_y,...
-```
-
-### Step 3: Run Quality Tests
-
-```bash
-./testEyeTracking test_video.mp4 ground_truth_test_video.json predictions.csv
-```
-
-**What it does:**
-1. Loads ground truth and predictions
-2. Calculates error metrics automatically
-3. Displays results in terminal
-4. Generates detailed report: `test_report.txt`
-5. Opens visualization window for frame-by-frame inspection
-
-**Keyboard Controls (Test Mode):**
-```
-  →, D          Next frame
-  ←, A          Previous frame
-  Page Down     +10 frames
-  Page Up       -10 frames
-  Q, ESC        Quit
-```
-
-**Visualization Legend:**
-- **Blue solid circle** = Ground truth LEFT eye
-- **Green solid circle** = Ground truth RIGHT eye
-- **Red outline** = Predicted LEFT eye
-- **Yellow outline** = Predicted RIGHT eye
-- **Lines** = Error distance with pixel measurement
-
-## Output Files
-
-### Ground Truth JSON Format
-```json
-{
-  "video_metadata": {
-    "filename": "test_video.mp4",
-    "fps": 30,
-    "resolution": [1920, 1080],
-    "total_frames": 900
-  },
-  "annotations": [
-    {
-      "frame_number": 0,
-      "timestamp": 0.0,
-      "left_eye": {"x": 450, "y": 320},
-      "right_eye": {"x": 550, "y": 318}
-    },
-    ...
-  ]
-}
-```
-
-### Test Report Format
-```
-EYE TRACKING TEST REPORT
-========================
-
-Dataset Overview:
-  Total annotated frames:    50
-  Frames with predictions:   48
-  Detection rate:            96.0%
-
-Error Statistics (pixels):
-  Left Eye  - Avg: 8.45 +/- 4.23, Max: 18.76
-  Right Eye - Avg: 7.89 +/- 3.91, Max: 16.54
-  Overall   - Avg: 8.17 px
-
-Accuracy Thresholds:
-  Within  5px: 18 / 48 (37.5%)
-  Within 10px: 38 / 48 (79.2%)
-  Within 20px: 47 / 48 (97.9%)
-  Within 50px: 48 / 48 (100.0%)
-
-Per-Frame Detailed Results:
-Frame,Left_Error_px,Right_Error_px,Avg_Error_px
-0,7.21,6.32,6.77
-15,9.85,8.12,8.99
-...
-```
-
-## Annotation Strategy
-
-### Recommended Approach
-1. **Keyframe sampling**: Annotate every 10-30 frames (not every single frame)
-2. **Focus on variety**: Different head poses, lighting, distances
-3. **Challenging scenarios**: Extreme angles, occlusions, motion blur
-4. **Minimum dataset**: 50-100 annotated frames for statistical significance
-5. **Quality over quantity**: Accurate annotations > many annotations
-
-### Tips for Quality Annotations
-- Click at the **center of the pupil** (not iris edge)
-- Zoom in (resize window) for precision
-- Be consistent with your definition of "eye center"
-- Mark LEFT eye first (matches your code convention)
-- Take breaks to maintain concentration
-
-## Integration with Existing Code
-
-### Your Current Workflow
-```bash
-# Original: Just run eyeLike
-./eyeLike -v video.mp4 -o output.csv
-
-# New: Test quality first
-./annotationTool video.mp4              # Create ground truth
-./eyeLike -v video.mp4 -o predictions.csv
-./testEyeTracking video.mp4 ground_truth_video.json predictions.csv
-```
-
-### Automated Testing Script
-
-Create `run_tests.sh`:
-```bash
-#!/bin/bash
-
-VIDEO=$1
-GROUND_TRUTH=$2
-
-if [ -z "$VIDEO" ] || [ -z "$GROUND_TRUTH" ]; then
-    echo "Usage: $0 <video_file> <ground_truth.json>"
-    exit 1
-fi
-
-echo "Running eyeLike on $VIDEO..."
-./eyeLike -v "$VIDEO" -o predictions_temp.csv
-
-echo "Running quality tests..."
-./testEyeTracking "$VIDEO" "$GROUND_TRUTH" predictions_temp.csv
-
-echo "Test complete! Check test_report.txt for results."
-```
-
-## Metrics Explained
-
-### Euclidean Distance Error
-```
-error = sqrt((x_pred - x_true)² + (y_pred - y_true)²)
-```
-The pixel distance between predicted and ground truth eye positions.
-
-### Average Error
-Mean of all per-frame errors. Lower is better.
-- **< 5px**: Excellent accuracy
-- **5-10px**: Good accuracy
-- **10-20px**: Acceptable for most applications
-- **> 20px**: Needs improvement
-
-### Standard Deviation
-Measures consistency. Low std dev = reliable predictions.
-
-### Detection Rate
-Percentage of annotated frames where eyeLike successfully detected eyes.
-- **> 95%**: Robust detection
-- **85-95%**: Good detection
-- **< 85%**: May need parameter tuning
-
-### Accuracy Thresholds
-Percentage of predictions within specific pixel distances:
-- **Within 10px** is a common benchmark for eye tracking applications
-- **Within 20px** is acceptable for gaze estimation
-- **Within 50px** indicates general detection success
-
-## Troubleshooting
-
-### Annotation Tool Issues
-
-**Video won't load:**
-```bash
-# Check OpenCV video codec support
-opencv_version --verbose
-
-# Try converting video to a compatible format
-ffmpeg -i input.mp4 -c:v libx264 -preset fast output.mp4
-./annotationTool output.mp4
-```
-
-**Window is too small/large:**
-- The window is resizable - just drag the corners
-- Or edit the code's `CV_WINDOW_NORMAL` flag
-
-**Annotations not saving:**
-- Check write permissions in current directory
-- Try specifying full path: `./annotationTool /full/path/video.mp4`
-
-### Testing Tool Issues
-
-**CSV parsing errors:**
-- Ensure CSV matches expected format (check header row)
-- Your eyeLike must output: `frame,face_x,face_y,face_width,face_height,right_eye_x,right_eye_y,left_eye_x,left_eye_y,...`
-
-**Frame mismatch warnings:**
-- Ground truth and predictions may have different frame numbers
-- This is normal - tool only compares frames present in both datasets
-
-## File Structure
-
-```
-TEDI/
-├── main.cpp                 # Your existing eyeLike code
-├── annotationTool.cpp       # New: Annotation tool
-├── testEyeTracking.cpp      # New: Testing tool
-├── Makefile                 # Updated build system
-├── res/                     # Haar cascades, etc.
-├── test_data/              # Testing videos and annotations
-│   ├── video1.mp4
-│   ├── ground_truth_video1.json
-│   └── predictions_video1.csv
-└── test_reports/           # Test results
-    └── report_video1.txt
-```
-
-## Advanced Usage
-
-### Batch Testing Multiple Videos
-
-Create `batch_test.sh`:
-```bash
-#!/bin/bash
-
-for video in test_data/*.mp4; do
-    basename=$(basename "$video" .mp4)
-    gt="test_data/ground_truth_${basename}.json"
-    
-    if [ -f "$gt" ]; then
-        echo "Testing $basename..."
-        ./eyeLike -v "$video" -o "predictions_${basename}.csv"
-        ./testEyeTracking "$video" "$gt" "predictions_${basename}.csv"
-        mv test_report.txt "test_reports/report_${basename}.txt"
-    fi
-done
-
-echo "Batch testing complete!"
-```
-
-### Continuous Integration
-
-Add to your development workflow:
-```bash
-# Before committing changes to eyeLike
-make clean && make
-./run_tests.sh test_video.mp4 ground_truth.json
-
-# Only commit if accuracy hasn't regressed
-```
-
-## Performance Optimization
-
-### For Annotation
-- Annotate keyframes only (every N frames)
-- Use keyboard shortcuts instead of mouse navigation
-- Process multiple short videos instead of one long video
-
-### For Testing
-- Keep ground truth datasets small but representative
-- Run tests on the same hardware as production
-- Cache results for regression testing
-
-## Contributing Test Data
-
-If you create high-quality annotated datasets:
-1. Include diverse scenarios (lighting, angles, distances)
-2. Document the annotation process used
-3. Include both "easy" and "challenging" frames
-4. Provide video metadata (fps, resolution, conditions)
-
-## Future Enhancements
-
-Planned features:
-- [ ] Multi-person annotation support
-- [ ] Confidence score tracking
-- [ ] Heatmap visualization
-- [ ] Automated keyframe selection
-- [ ] Inter-annotator agreement metrics
-- [ ] Real-time annotation during video playback
-
-## FAQ
-
-**Q: How many frames should I annotate?**
-A: 50-100 frames gives good statistical significance. Focus on diverse scenarios.
-
-**Q: Should I annotate every frame?**
-A: No! Keyframe sampling (every 10-30 frames) is more efficient and equally valid.
-
-**Q: What if eyeLike fails to detect eyes in some frames?**
-A: Normal! The detection rate metric tracks this. Aim for > 90% detection.
-
-**Q: Can I use this with other eye tracking software?**
-A: Yes! Just export to the same CSV format that eyeLike uses.
-
-**Q: How do I handle partially occluded eyes?**
-A: Annotate the estimated center position, or skip the frame if too ambiguous.
-
-## License
-
-Part of the TEDI project. Same license as eyeLike.
-
-## Contact
-
-For issues or questions about the testing framework, refer to the main TEDI project documentation.
+Isto irá gerar os executáveis `annotationTool` e `testEyeTracking` dentro da pasta `build/`.
 
 ---
 
-**Happy Testing! 🎯👁️**
+## 1. Ferramenta de Anotação (`annotationTool`)
+
+Uma ferramenta gráfica para criar a "Verdade Terrestre" (Ground Truth) num vídeo. Permite marcar manualmente o centro dos olhos humana e visualmente para futura comparação com a previsão do algoritmo.
+
+**Como correr:**
+```bash
+./build/annotationTool testing/test_data/video_de_teste.mov
+```
+
+### ✨ Funcionalidades Avançadas de Anotação:
+* **Validação de Olhos Fechados (Tecla X):** Se a pessoa fechar os olhos no vídeo, prime `X`. A frame será marcada como "olhos fechados". O teste de erro ignorará a matemática destas frames específicas para não penalizar a precisão final do algoritmo com "falsos positivos".
+* **Timeline Visual (Barra de Progresso):** Na base do ecrã, uma barra de progresso dinâmica mapeia o teu trabalho:
+  * **Cinzento:** Frames não anotadas.
+  * **Verde:** Frames corretamente anotadas (Olhos Abertos).
+  * **Amarelo:** Frames marcadas propositadamente como "Olhos Fechados".
+  * **Linha Vermelha:** O cursor indicando a frame atual.
+* **Auto-Save Inteligente:** Para prevenir perda de dados, o progresso é guardado automaticamente a cada 20 cliques/alterações diretamente na mesma pasta do vídeo (ex: `testing/test_data/ground_truth_video.json`).
+
+### ⌨️ Controlos da Interface Gráfica:
+| Tecla | Ação |
+|-------|------|
+| `A` / `D` | Frame anterior / Frame seguinte |
+| `Espaço` | Saltar para a próxima frame não anotada (Acelera o fluxo) |
+| `1` / `2` | Marcar Olho Esquerdo (Azul) / Direito (Verde) com o rato |
+| `X` | Alternar estado de "Olhos Fechados" |
+| `F` | Propagar a marcação atual para as próximas 15 frames |
+| `Backspace` | Limpar anotação da frame atual |
+| `W` / `S` | Aumentar / Diminuir Brilho do vídeo |
+| `C` | Ativar/Desativar contraste adaptativo (CLAHE) - útil para olhos escuros |
+| `M` | Guardar progresso manualmente |
+
+---
+
+## 2. Gerar Previsões (`eyeLike` em Modo Headless)
+
+O `eyeLike` pode agora correr em modo **Headless** (sem interface gráfica e sem renderização de janelas). Isto permite processar vídeos a velocidades extremamente altas usando 100% da capacidade de cálculo do processador, sendo também o modo ideal para correr o software em sistemas IoT limitados (como o Raspberry Pi).
+
+**Como gerar o ficheiro de previsões (.csv):**
+```bash
+./build/bin/eyeLike -v testing/test_data/video_de_teste.mov -o testing/test_data/predictions_video_de_teste.csv --headless
+```
+
+---
+
+## 3. Testes de Qualidade Académica (`testEyeTracking`)
+
+Esta ferramenta cruza os dados do teu Ground Truth com as previsões geradas pelo algoritmo e extrai um relatório científico.
+
+**Como correr (usando o script que deteta as dependências automaticamente):**
+```bash
+./scripts/runTest.sh testing/test_data/video_de_teste.mov
+```
+
+### 📊 Relatórios Analíticos Gerados (na pasta `testing/test_reports/`):
+A ferramenta exporta os dados em dois formatos distintos para facilitar a interpretação e a análise estatística:
+
+1. **`report_video.txt` (Executive Summary):** Um resumo de fácil leitura que categoriza o erro global e divide a performance do algoritmo entre o olho esquerdo e direito.
+   * **RMSE (Root Mean Square Error):** Métrica de rigor científico que penaliza desvios/erros grandes de tracking.
+   * **Mediana (Robustez):** Apresenta o erro típico ignorando "outliers" (ex: quando o algoritmo perde o rosto temporariamente).
+   * **Separação Espacial (Eixo X vs Eixo Y):** Desmonta o erro de tracking para entender se o algoritmo tem maior dificuldade em seguir o movimento horizontal (X) ou vertical (Y) dos olhos.
+2. **`report_video.csv` (Base de Dados):** Dados numéricos limpos frame-a-frame, concebidos para serem importados no Excel, Python ou R para a criação de gráficos de dispersão (Scatter Plots) ou futuro treino de modelos de Machine Learning.
+
+### 👁️ Interface de Validação Visual (HUD):
+Durante o teste, a janela exibe o vídeo em tempo real com os dados sobrepostos:
+* **Círculos Preenchidos:** Verdade Terrestre (Onde o olho realmente está).
+* **Círculos Vazados + Linhas:** Previsão do algoritmo e a direção do desvio.
+* **Dashboard em Tempo Real:** Uma consola no ecrã apresenta as distâncias de erro exatas. Se o erro médio da frame ultrapassar os 15 pixeis, o texto pinta-se de vermelho para evidenciar a falha de deteção.
+
+---
+
+## 4. Automação em Lote (Batch Testing Pipeline)
+
+Para lidar com bases de dados grandes, o repositório inclui um script de pipeline "ponta-a-ponta" que automatiza a recolha de resultados.
+
+**Modo de Vídeo Único (Com validações guiadas):**
+```bash
+./scripts/run_complete_test.sh testing/test_data/video_de_teste.mov
+```
+*(Verifica as dependências, permite anotar na hora se faltar o Ground Truth e corre os testes em sequência).*
+
+**Modo BATCH (Processar todos os vídeos em simultâneo):**
+```bash
+./scripts/run_complete_test.sh --all
+```
+*(O sistema irá procurar todos os vídeos na pasta de testes, isolar apenas os que já contêm anotações, gerar as previsões `--headless` no background e calcular os relatórios científicos para todos eles num único fluxo de trabalho).*
+
+---
+
+## 📡 Integração MQTT para IoT
+
+O `eyeLike` suporta o envio contínuo de coordenadas processadas para um Broker MQTT, o que permite criar dashboards na cloud em tempo real.
+
+**Exemplo de Execução (Modo IoT Oculto):**
+```bash
+./build/bin/eyeLike -c -m tcp://localhost:1883 -t eyetracker/coordinates --mqtt-mode heartbeat --headless
+```
+* **Modos de Operação MQTT:** * `production`: Envio contínuo (QoS 0, Payload leve).
+  * `debug`: Payload extenso contendo coordenadas brutas e ID da câmara.
+  * `heartbeat`: Envio reativo (QoS 1, Payload retido). Transmite apenas quando existe uma alteração significativa de posição na face ou olhos, poupando largura de banda de rede.
