@@ -33,7 +33,9 @@ void printUsage();
 /** Global variables */
 //-- Note, either copy these two files from opencv/data/haarscascades to your current folder, or change these locations
 cv::String face_cascade_name = "res/haarcascade_frontalface_alt.xml";
+cv::String eye_cascade_name = "res/haarcascade_eye_tree_eyeglasses.xml";
 cv::CascadeClassifier face_cascade;
+cv::CascadeClassifier eye_cascade;
 std::string main_window_name = "Capture - Face detection";
 std::string face_window_name = "Capture - Face";
 cv::RNG rng(12345);
@@ -49,10 +51,11 @@ std::string mqttClientId = "eyeLike";
 
 MqttMode mqttMode = MqttMode::PRODUCTION;
 
-// Novas variables for video manipulation
+// Variables for video manipulation & Execution Mode
 std::ofstream outputFile;
 bool saveToFile = false;
 int globalFrameNumber = 0;
+bool headlessMode = false; // NOVO: Flag para modo sem interface gráfica
 
 /**
  * @function printUsage
@@ -69,14 +72,13 @@ void printUsage() {
   std::cout << "  -t, --topic <topic>     MQTT topic (default: eyetracker/coordinates)\n";
   std::cout << "  --client-id <id>        MQTT client ID (default: eyeLike)\n";
   std::cout << "  --mqtt-mode <mode>      MQTT mode: production, debug, heartbeat (default: production)\n";
+  std::cout << "  --headless              Run without GUI/Video output (for Raspberry Pi/Servers)\n"; // NOVO
   std::cout << "  -h, --help              Show this help message\n\n";
   std::cout << "Examples:\n";
   std::cout << "  eyeLike                          # Use webcam\n";
-  std::cout << "  eyeLike -c                       # Use webcam (explicit)\n";
-  std::cout << "  eyeLike -v video.mp4             # Process video file\n";
-  std::cout << "  eyeLike -v video.mp4 -o out.csv  # Process video and save results\n\n";
-  std::cout << "  eyeLike -v video.mp4 -m tcp://localhost:1883  # With MQTT\n";
-  std::cout << "Keyboard Controls:\n";
+  std::cout << "  eyeLike -v video.mp4 --headless  # Process video without windows\n";
+  std::cout << "  eyeLike -c -m tcp://localhost:1883 --headless # Webcam to MQTT in background\n\n";
+  std::cout << "Keyboard Controls (GUI Mode Only):\n";
   std::cout << "  'c' or 'q'  - Quit application\n";
   std::cout << "  'f'         - Save current frame as image\n";
   std::cout << "  'p'         - Pause video (video mode only)\n\n";
@@ -165,6 +167,9 @@ int main( int argc, const char** argv ) {
         } 
       }
     }
+    else if (arg == "--headless") {
+      headlessMode = true; // NOVO: Ativa o modo headless
+    }
     else {
       std::cerr << "Unknown argument: " << arg << "\n";
       printUsage();
@@ -175,6 +180,11 @@ int main( int argc, const char** argv ) {
   // Load the cascades
   if( !face_cascade.load( face_cascade_name ) ) { 
     printf("--(!)Error loading face cascade, please change face_cascade_name in source code.\n"); 
+    return -1; 
+  }
+  
+  if( !eye_cascade.load( eye_cascade_name ) ) { 
+    printf("--(!)Error loading eye cascade, please change eye_cascade_name in source code.\n"); 
     return -1; 
   }
   
@@ -205,26 +215,28 @@ int main( int argc, const char** argv ) {
     std::cout << "Saving results to: " << outputPath << "\n";
   }
   
-  cv::namedWindow(main_window_name, CV_WINDOW_NORMAL);
-  cv::moveWindow(main_window_name, 400, 100);
-  cv::namedWindow(face_window_name, CV_WINDOW_NORMAL);
-  cv::moveWindow(face_window_name, 10, 100);
-  cv::namedWindow("Right Eye", CV_WINDOW_NORMAL);
-  cv::moveWindow("Right Eye", 10, 600);
-  cv::namedWindow("Left Eye", CV_WINDOW_NORMAL);
-  cv::moveWindow("Left Eye", 10, 800);
-
-  /* As the matrix dichotomy will not be applied, these windows are useless.
-  cv::namedWindow("aa", CV_WINDOW_NORMAL);
-  cv::moveWindow("aa", 10, 800);
-  cv::namedWindow("aaa", CV_WINDOW_NORMAL);
-  cv::moveWindow("aaa", 10, 800);*/
+  // Ignores opening windows if in headless mode
+  if (!headlessMode) {
+      cv::namedWindow(main_window_name, CV_WINDOW_NORMAL);
+      cv::moveWindow(main_window_name, 400, 100);
+      cv::namedWindow(face_window_name, CV_WINDOW_NORMAL);
+      cv::moveWindow(face_window_name, 10, 100);
+      cv::namedWindow("Right Eye", CV_WINDOW_NORMAL);
+      cv::moveWindow("Right Eye", 10, 600);
+      cv::namedWindow("Left Eye", CV_WINDOW_NORMAL);
+      cv::moveWindow("Left Eye", 10, 800);
+  }
 
   createCornerKernels();
   ellipse(skinCrCbHist, cv::Point(113, 155), cv::Size(23, 15),
           43.0, 0.0, 360.0, cv::Scalar(255, 255, 255), -1);
 
   // Informação sobre modo de operação
+  if (headlessMode) {
+      std::cout << "\n>>> RUNNING IN HEADLESS MODE (No GUI) <<<\n";
+      if (useCamera) std::cout << "Press Ctrl+C in the terminal to stop the application.\n";
+  }
+
   if (useCamera) {
     std::cout << "Starting in CAMERA mode...\n";
   } else {
@@ -300,7 +312,6 @@ int main( int argc, const char** argv ) {
 
       // Apply the classifier to the frame
       if( !frame.empty() ) {
-	//std::cout << "Frame size: " << frame.cols << ", " << frame.rows << "\n";
         detectAndDisplay( frame );
       }
       else {
@@ -322,25 +333,28 @@ int main( int argc, const char** argv ) {
         }
       }
 
-      imshow(main_window_name,debugImage);
+      // NOVO: Ignora a visualização e captura de teclas no modo headless
+      if (!headlessMode) {
+          imshow(main_window_name,debugImage);
 
-      // Different wait time for video vs camera
-      int waitTime = useCamera ? 10 : 1;
-      int c = cv::waitKey(waitTime);
-      
-      if( (char)c == 'c' || (char)c == 'q' ) { 
-        std::cout << "\nExiting...\n";
-        break; 
-      }
-      if( (char)c == 'f' ) {
-        std::string filename = "captures/frame_" + std::to_string(globalFrameNumber) + ".png";
-        imwrite(filename, frame);
-        std::cout << "Saved frame to: " << filename << "\n";
-      }
-      if( (char)c == 'p' && !useCamera ) {
-        std::cout << "Video PAUSED. Press any key to continue...\n";
-        cv::waitKey(0);
-        std::cout << "Resuming...\n";
+          // Different wait time for video vs camera
+          int waitTime = useCamera ? 10 : 1;
+          int c = cv::waitKey(waitTime);
+          
+          if( (char)c == 'c' || (char)c == 'q' ) { 
+            std::cout << "\nExiting...\n";
+            break; 
+          }
+          if( (char)c == 'f' ) {
+            std::string filename = "captures/frame_" + std::to_string(globalFrameNumber) + ".png";
+            imwrite(filename, frame);
+            std::cout << "Saved frame to: " << filename << "\n";
+          }
+          if( (char)c == 'p' && !useCamera ) {
+            std::cout << "Video PAUSED. Press any key to continue...\n";
+            cv::waitKey(0);
+            std::cout << "Resuming...\n";
+          }
       }
 
     }
@@ -390,9 +404,29 @@ cv::Rect findEyes(cv::Mat frame_gray, cv::Rect face) {
   cv::Rect rightEyeRegion(face.width - eye_region_width - face.width*(kEyePercentSide/100.0),
                           eye_region_top,eye_region_width,eye_region_height);
 
-  //-- Find Eye Centers
-  cv::Point leftPupil = findEyeCenter(faceROI,leftEyeRegion,"Left Eye");
-  cv::Point rightPupil = findEyeCenter(faceROI,rightEyeRegion,"Right Eye");
+  //-- Find Eye Centers (com validação de olhos fechados)
+  std::vector<cv::Rect> leftEyesDetected, rightEyesDetected;
+  
+  eye_cascade.detectMultiScale(faceROI(leftEyeRegion), leftEyesDetected, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, cv::Size(15, 15));
+  eye_cascade.detectMultiScale(faceROI(rightEyeRegion), rightEyesDetected, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, cv::Size(15, 15));
+
+  bool leftEyeClosed = leftEyesDetected.empty();
+  bool rightEyeClosed = rightEyesDetected.empty();
+
+  cv::Point leftPupil, rightPupil;
+
+  if (!leftEyeClosed) {
+      leftPupil = findEyeCenter(faceROI, leftEyeRegion, "Left Eye");
+  } else {
+      leftPupil = cv::Point(leftEyeRegion.width / 2, leftEyeRegion.height / 2);
+  }
+
+  if (!rightEyeClosed) {
+      rightPupil = findEyeCenter(faceROI, rightEyeRegion, "Right Eye");
+  } else {
+      rightPupil = cv::Point(rightEyeRegion.width / 2, rightEyeRegion.height / 2);
+  }
+
   // get corner regions
   cv::Rect leftRightCornerRegion(leftEyeRegion);
   leftRightCornerRegion.width -= leftPupil.x;
@@ -431,8 +465,12 @@ cv::Rect findEyes(cv::Mat frame_gray, cv::Rect face) {
   // draw eye centers
   circle(debugFace, rightPupil, 3, 1234);
   circle(debugFace, leftPupil, 3, 1234);
-  std::cout << "  RE: " << rightPupil.x << ", " << rightPupil.y << "\n";
-  std::cout << "  LE: " << leftPupil.x  << ", " << leftPupil.y  << "\n";
+  
+  // Apenas imprimir logs de debug se NÃO estivermos no modo headless, para manter o terminal do RPi limpo
+  if (!headlessMode) {
+      std::cout << "  RE: " << rightPupil.x << ", " << rightPupil.y << "\n";
+      std::cout << "  LE: " << leftPupil.x  << ", " << leftPupil.y  << "\n";
+  }
   
   // Save to CSV file if enabled
   if (saveToFile) {
@@ -474,10 +512,10 @@ cv::Rect findEyes(cv::Mat frame_gray, cv::Rect face) {
     circle(faceROI, rightRightCorner, 3, 200);
   }
 
-  imshow(face_window_name, faceROI);
-//  cv::Rect roi( cv::Point( 0, 0 ), faceROI.size());
-//  cv::Mat destinationROI = debugImage( roi );
-//  faceROI.copyTo( destinationROI );
+  // NOVO: Ignora a atualização da janela do rosto no modo headless
+  if (!headlessMode) {
+      imshow(face_window_name, faceROI);
+  }
 
   return singleEye;
 }
@@ -560,20 +598,24 @@ void detectAndDisplay( cv::Mat frame ) {
 
   std::vector<cv::Mat> rgbChannels(3);
   cv::split(frame, rgbChannels);
-//  cv::Mat frame_gray = rgbChannels[2];
 
-  //cvtColor( frame, frame_gray, CV_BGR2GRAY );
   cvtColor( frame, frame_gray, cv::COLOR_BGR2GRAY );
-  //equalizeHist( frame_gray, frame_gray );
-  //cv::pow(frame_gray, CV_64F, frame_gray);
 
   faces = findHeads(frame_gray);
   //-- Show what you got
   if (faces.size() > 0) {
-    std::cout << "Face: " << faces[0].x << ", " << faces[0].y << "; Size: " << 
-	faces[0].width << ", " << faces[0].height << "\n";
+    
+    // Prints face information only if not in headless mode, to avoid cluttering the terminal on Raspberry Pi
+    if (!headlessMode) {
+        std::cout << "Face: " << faces[0].x << ", " << faces[0].y << "; Size: " << 
+	    faces[0].width << ", " << faces[0].height << "\n";
+    }
+    
     cv::Rect se = findEyes(frame_gray, faces[0]);
-    std::cout << "  singleEye: " << se.x << ", " << se.y << "\n";
-    std::cout << "  globalEye: " << se.x+faces[0].x << ", " << se.y+faces[0].y << "\n";
+    
+    if (!headlessMode) {
+        std::cout << "  singleEye: " << se.x << ", " << se.y << "\n";
+        std::cout << "  globalEye: " << se.x+faces[0].x << ", " << se.y+faces[0].y << "\n";
+    }
   }
 }

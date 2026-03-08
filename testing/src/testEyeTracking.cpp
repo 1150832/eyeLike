@@ -19,9 +19,10 @@
 struct GroundTruth {
     cv::Point left_eye;
     cv::Point right_eye;
+    bool eyes_closed; // NOVO: Flag para olhos fechados
     
-    GroundTruth() : left_eye(-1, -1), right_eye(-1, -1) {}
-    GroundTruth(cv::Point l, cv::Point r) : left_eye(l), right_eye(r) {}
+    GroundTruth() : left_eye(-1, -1), right_eye(-1, -1), eyes_closed(false) {}
+    GroundTruth(cv::Point l, cv::Point r, bool closed = false) : left_eye(l), right_eye(r), eyes_closed(closed) {}
 };
 
 // Structure for prediction from eyeLike
@@ -37,6 +38,7 @@ struct Prediction {
 struct TestMetrics {
     int total_annotated_frames;
     int frames_with_predictions;
+    int closed_eyes_frames; // NOVO: Contador
     
     std::vector<double> left_eye_errors;
     std::vector<double> right_eye_errors;
@@ -57,7 +59,7 @@ struct TestMetrics {
     int within_20px;
     int within_50px;
     
-    TestMetrics() : total_annotated_frames(0), frames_with_predictions(0),
+    TestMetrics() : total_annotated_frames(0), frames_with_predictions(0), closed_eyes_frames(0),
                     avg_left_error(0), avg_right_error(0), avg_total_error(0),
                     max_left_error(0), max_right_error(0),
                     std_left_error(0), std_right_error(0),
@@ -106,6 +108,7 @@ bool loadGroundTruth(const std::string& filename) {
     std::string line;
     int frameNum = -1;
     int leftX = -1, leftY = -1, rightX = -1, rightY = -1;
+    bool closed = false; // Estado local para os olhos fechados
     
     while (std::getline(file, line)) {
         size_t framePos = line.find("\"frame_number\":");
@@ -114,6 +117,12 @@ bool loadGroundTruth(const std::string& filename) {
             size_t commaPos = line.find(',', colonPos);
             if (commaPos == std::string::npos) commaPos = line.length();
             frameNum = std::stoi(line.substr(colonPos + 1, commaPos - colonPos - 1));
+            closed = false; // Reset ao ler nova frame
+        }
+        
+        // NOVO: Ler flag de olhos fechados
+        if (line.find("\"eyes_closed\":") != std::string::npos) {
+            if (line.find("true") != std::string::npos) closed = true;
         }
         
         size_t leftEyePos = line.find("\"left_eye\":");
@@ -144,11 +153,13 @@ bool loadGroundTruth(const std::string& filename) {
                 commaPos = line.find('}', colonPos);
                 rightY = std::stoi(line.substr(colonPos + 1, commaPos - colonPos - 1));
                 
-                if (frameNum >= 0 && leftX >= 0 && rightX >= 0) {
+                // NOVO: Aceitar a frame se os olhos estiverem fechados OU se as coordenadas forem válidas
+                if (frameNum >= 0 && (closed || (leftX >= 0 && rightX >= 0))) {
                     groundTruths[frameNum] = GroundTruth(cv::Point(leftX, leftY), 
-                                                         cv::Point(rightX, rightY));
+                                                         cv::Point(rightX, rightY), closed);
                     frameNum = -1;
                     leftX = leftY = rightX = rightY = -1;
+                    closed = false;
                 }
             }
         }
@@ -213,6 +224,12 @@ void calculateMetrics() {
             continue;
         }
         
+        // NOVO: Se os olhos estiverem fechados na anotação, não calculamos o erro em pixeis
+        if (gt.eyes_closed) {
+            metrics.closed_eyes_frames++;
+            continue; 
+        }
+        
         const Prediction& pred = predictions[frameNum];
         metrics.frames_with_predictions++;
         
@@ -236,7 +253,7 @@ void calculateMetrics() {
         if (avgError <= 50.0) metrics.within_50px++;
     }
     
-    // Calculate averages
+    // Calculate averages (Apenas para olhos abertos)
     if (!metrics.left_eye_errors.empty()) {
         double sumLeft = 0, sumRight = 0, sumAvg = 0;
         for (size_t i = 0; i < metrics.left_eye_errors.size(); i++) {
@@ -269,13 +286,17 @@ void displayMetrics() {
     
     std::cout << "Dataset Overview:\n";
     std::cout << "  Total annotated frames:    " << metrics.total_annotated_frames << "\n";
-    std::cout << "  Frames with predictions:   " << metrics.frames_with_predictions << "\n";
-    std::cout << "  Detection rate:            " 
-              << std::fixed << std::setprecision(1)
-              << (100.0 * metrics.frames_with_predictions / metrics.total_annotated_frames) 
-              << "%\n\n";
+    std::cout << "  Frames with closed eyes:   " << metrics.closed_eyes_frames << " (Excluded from pixel error)\n";
+    std::cout << "  Frames analyzed (Open):    " << metrics.frames_with_predictions << "\n";
     
-    std::cout << "Error Statistics (pixels):\n";
+    if (metrics.frames_with_predictions > 0) {
+        std::cout << "  Detection rate (Open eyes): " 
+                  << std::fixed << std::setprecision(1)
+                  << (100.0 * metrics.frames_with_predictions / (metrics.total_annotated_frames - metrics.closed_eyes_frames)) 
+                  << "%\n\n";
+    }
+
+    std::cout << "Error Statistics (pixels - Open Eyes Only):\n";
     std::cout << std::fixed << std::setprecision(2);
     std::cout << "  Left Eye  - Avg: " << metrics.avg_left_error 
               << " ± " << metrics.std_left_error
@@ -285,7 +306,7 @@ void displayMetrics() {
               << ", Max: " << metrics.max_right_error << "\n";
     std::cout << "  Overall   - Avg: " << metrics.avg_total_error << " px\n\n";
     
-    std::cout << "Accuracy Thresholds:\n";
+    std::cout << "Accuracy Thresholds (Open Eyes Only):\n";
     int n = metrics.frames_with_predictions;
     if (n > 0) {
         std::cout << "  Within  5px: " << std::setw(4) << metrics.within_5px 
@@ -314,13 +335,10 @@ void saveMetricsReport(const std::string& filename) {
     
     file << "Dataset Overview:\n";
     file << "  Total annotated frames:    " << metrics.total_annotated_frames << "\n";
-    file << "  Frames with predictions:   " << metrics.frames_with_predictions << "\n";
-    file << "  Detection rate:            " 
-         << std::fixed << std::setprecision(1)
-         << (100.0 * metrics.frames_with_predictions / metrics.total_annotated_frames) 
-         << "%\n\n";
+    file << "  Frames with closed eyes:   " << metrics.closed_eyes_frames << " (Excluded from pixel error)\n";
+    file << "  Frames analyzed (Open):    " << metrics.frames_with_predictions << "\n\n";
     
-    file << "Error Statistics (pixels):\n";
+    file << "Error Statistics (pixels - Open Eyes Only):\n";
     file << std::fixed << std::setprecision(2);
     file << "  Left Eye  - Avg: " << metrics.avg_left_error 
          << " +/- " << metrics.std_left_error
@@ -330,7 +348,7 @@ void saveMetricsReport(const std::string& filename) {
          << ", Max: " << metrics.max_right_error << "\n";
     file << "  Overall   - Avg: " << metrics.avg_total_error << " px\n\n";
     
-    file << "Accuracy Thresholds:\n";
+    file << "Accuracy Thresholds (Open Eyes Only):\n";
     int n = metrics.frames_with_predictions;
     if (n > 0) {
         file << "  Within  5px: " << metrics.within_5px << " / " << n 
@@ -344,19 +362,21 @@ void saveMetricsReport(const std::string& filename) {
     }
     
     file << "\n\nPer-Frame Detailed Results:\n";
-    file << "Frame,Left_Error_px,Right_Error_px,Avg_Error_px\n";
+    file << "Frame,Left_Error_px,Right_Error_px,Avg_Error_px,State\n";
     
     for (const auto& gtPair : groundTruths) {
         int frameNum = gtPair.first;
         const GroundTruth& gt = gtPair.second;
         
-        if (predictions.find(frameNum) != predictions.end()) {
+        if (gt.eyes_closed) {
+             file << frameNum << ",0,0,0,CLOSED\n";
+        } else if (predictions.find(frameNum) != predictions.end()) {
             const Prediction& pred = predictions[frameNum];
             double leftError = calculateDistance(gt.left_eye, pred.left_eye);
             double rightError = calculateDistance(gt.right_eye, pred.right_eye);
             double avgError = (leftError + rightError) / 2.0;
             
-            file << frameNum << "," << leftError << "," << rightError << "," << avgError << "\n";
+            file << frameNum << "," << leftError << "," << rightError << "," << avgError << ",OPEN\n";
         }
     }
     
@@ -371,6 +391,20 @@ void drawComparison(cv::Mat& image, int frameNum) {
     }
     
     const GroundTruth& gt = groundTruths[frameNum];
+    
+    // NOVO: Feedback visual para olhos fechados
+    if (gt.eyes_closed) {
+        cv::putText(image, "GROUND TRUTH: EYES CLOSED", cv::Point(image.cols / 2 - 200, 100),
+                    cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 0, 255), 3);
+                    
+        // Desenha as predições (para debug) se elas existirem
+        if (predictions.find(frameNum) != predictions.end()) {
+            const Prediction& pred = predictions[frameNum];
+            cv::circle(image, pred.left_eye, 12, cv::Scalar(0, 0, 255), 3);
+            cv::circle(image, pred.right_eye, 12, cv::Scalar(0, 255, 255), 3);
+        }
+        return; // Retorna cedo para não desenhar círculos GT
+    }
     
     // Draw ground truth (solid circles)
     cv::circle(image, gt.left_eye, 8, cv::Scalar(255, 100, 0), -1);  // Blue filled
@@ -448,7 +482,10 @@ void updateDisplay() {
     
     std::string status;
     cv::Scalar color;
-    if (hasGT && hasPred) {
+    if (hasGT && groundTruths[currentFrame].eyes_closed) {
+        status = "Status: GT indicates EYES CLOSED";
+        color = cv::Scalar(255, 255, 0); // Amarelo
+    } else if (hasGT && hasPred) {
         status = "Status: GT + Prediction";
         color = cv::Scalar(0, 255, 0);
     } else if (hasGT) {

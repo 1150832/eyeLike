@@ -21,11 +21,13 @@ struct EyeAnnotation {
     cv::Point right_eye;
     bool left_set;
     bool right_set;
+    bool eyes_closed; // NOVO: Flag para olhos fechados
     
-    EyeAnnotation() : left_eye(-1, -1), right_eye(-1, -1), left_set(false), right_set(false) {}
+    EyeAnnotation() : left_eye(-1, -1), right_eye(-1, -1), left_set(false), right_set(false), eyes_closed(false) {}
     
+    // Completo se os olhos estiverem fechados OU se ambos os pontos estiverem definidos
     bool isComplete() const {
-        return left_set && right_set;
+        return eyes_closed || (left_set && right_set);
     }
     
     void clear() {
@@ -33,6 +35,7 @@ struct EyeAnnotation {
         right_eye = cv::Point(-1, -1);
         left_set = false;
         right_set = false;
+        eyes_closed = false; // Limpa também a flag
     }
 };
 
@@ -62,7 +65,7 @@ bool loadAnnotations(const std::string& filename);
 void goToFrame(int frameNum);
 int findNextUnannotated(int startFrame, bool forward);
 std::string getJsonFilename(const std::string& videoPath);
-void propagateAnnotations(int startFrame, int count); // NEW: Predictive function
+void propagateAnnotations(int startFrame, int count); 
 
 // --- Image Processing ---
 void processImage() {
@@ -114,9 +117,6 @@ void propagateAnnotations(int startFrame, int count) {
     int filled = 0;
 
     for (int f = startFrame + 1; f < maxF; f++) {
-        // Only overwrite if not already set (safety) - OR overwrite all?
-        // User workflow: "annotate some frames after... then edit". 
-        // Overwriting is usually what you want if you trigger this manually.
         annotations[f] = src;
         filled++;
     }
@@ -130,6 +130,12 @@ void mouseCallback(int event, int x, int y, int flags, void* userdata) {
     
     EyeAnnotation& ann = annotations[currentFrame];
     
+    // Bloquear marcações manuais se a flag "Olhos Fechados" estiver ativa
+    if (ann.eyes_closed) {
+        std::cout << "Olhos marcados como fechados. Remova a flag (tecla 'x') para adicionar pontos manuais.\n";
+        return;
+    }
+    
     // Smart Edit Logic
     if (!ann.left_set) {
         ann.left_eye = cv::Point(x, y);
@@ -138,7 +144,6 @@ void mouseCallback(int event, int x, int y, int flags, void* userdata) {
         ann.right_eye = cv::Point(x, y);
         ann.right_set = true;
     } else {
-        // If both are set, assume restart (Left First) unless user used edit keys
         ann.left_eye = cv::Point(x, y);
         ann.left_set = true;
         ann.right_set = false; 
@@ -160,7 +165,7 @@ void drawUI(cv::Mat& img) {
     // Background box
     cv::Mat overlay;
     img.copyTo(overlay);
-    cv::rectangle(overlay, cv::Point(0, 0), cv::Point(300, 500), cv::Scalar(20,20,20), -1);
+    cv::rectangle(overlay, cv::Point(0, 0), cv::Point(300, 520), cv::Scalar(20,20,20), -1);
     cv::addWeighted(overlay, 0.7, img, 0.3, 0, img);
 
     auto drawLine = [&](std::string text, cv::Scalar color = cv::Scalar(0, 255, 100)) {
@@ -175,10 +180,11 @@ void drawUI(cv::Mat& img) {
     drawLine("-----------------------------");
     drawLine("[1] Edit LEFT Eye (Blue)");
     drawLine("[2] Edit RIGHT Eye (Green)");
+    drawLine("[X] Toggle EYES CLOSED", cv::Scalar(255, 100, 100)); // NOVO
     drawLine("[Backsp] Clear Frame");
     drawLine("-----------------------------");
-    drawLine("[F] PREDICT NEXT 15 FRAMES", cv::Scalar(0, 150, 255)); // Highlight feature
-    drawLine("    (Copies current dots fwd)");
+    drawLine("[F] PREDICT NEXT 15 FRAMES", cv::Scalar(0, 150, 255));
+    drawLine("    (Copies current state fwd)");
     drawLine("-----------------------------");
     drawLine("IMAGE ENHANCEMENT:");
     std::stringstream ss;
@@ -195,11 +201,17 @@ void drawUI(cv::Mat& img) {
     // Status
     y_start = img.rows - 50;
     std::string status = "STATUS: ";
-    if (annotations[currentFrame].isComplete()) status += "COMPLETE";
-    else if (!annotations[currentFrame].left_set) status += "Click LEFT Eye";
-    else status += "Click RIGHT Eye";
     
-    cv::putText(img, status, cv::Point(10, y_start), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0,255,255), 2);
+    // Atualização visual do estado
+    if (annotations[currentFrame].eyes_closed) {
+        status += "EYES CLOSED (Skipped)";
+        cv::putText(img, status, cv::Point(10, y_start), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(100,100,255), 2);
+    } else {
+        if (annotations[currentFrame].isComplete()) status += "COMPLETE";
+        else if (!annotations[currentFrame].left_set) status += "Click LEFT Eye";
+        else status += "Click RIGHT Eye";
+        cv::putText(img, status, cv::Point(10, y_start), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0,255,255), 2);
+    }
     
     std::stringstream ss2;
     ss2 << "Frame: " << currentFrame << "/" << totalFrames;
@@ -209,19 +221,19 @@ void drawUI(cv::Mat& img) {
 void updateDisplay() {
     if (currentFrameImage.empty()) return;
     
-    processImage(); // Applies brightness/contrast/CLAHE
+    processImage(); 
     
-    // Draw Markers
-    if (annotations.count(currentFrame)) {
+    // Desenhar Marcadores apenas se os olhos não estiverem marcados como fechados
+    if (annotations.count(currentFrame) && !annotations[currentFrame].eyes_closed) {
         const EyeAnnotation& ann = annotations[currentFrame];
         if (ann.left_set) {
-            cv::circle(displayImage, ann.left_eye, 4, cv::Scalar(255, 0, 0), -1); // Blue Fill
+            cv::circle(displayImage, ann.left_eye, 4, cv::Scalar(255, 0, 0), -1);
             cv::circle(displayImage, ann.left_eye, 8, cv::Scalar(255, 0, 0), 1);
             cv::line(displayImage, cv::Point(ann.left_eye.x-10, ann.left_eye.y), cv::Point(ann.left_eye.x+10, ann.left_eye.y), cv::Scalar(255,0,0), 1);
             cv::line(displayImage, cv::Point(ann.left_eye.x, ann.left_eye.y-10), cv::Point(ann.left_eye.x, ann.left_eye.y+10), cv::Scalar(255,0,0), 1);
         }
         if (ann.right_set) {
-            cv::circle(displayImage, ann.right_eye, 4, cv::Scalar(0, 255, 0), -1); // Green Fill
+            cv::circle(displayImage, ann.right_eye, 4, cv::Scalar(0, 255, 0), -1);
             cv::circle(displayImage, ann.right_eye, 8, cv::Scalar(0, 255, 0), 1);
             cv::line(displayImage, cv::Point(ann.right_eye.x-10, ann.right_eye.y), cv::Point(ann.right_eye.x+10, ann.right_eye.y), cv::Scalar(0,255,0), 1);
             cv::line(displayImage, cv::Point(ann.right_eye.x, ann.right_eye.y-10), cv::Point(ann.right_eye.x, ann.right_eye.y+10), cv::Scalar(0,255,0), 1);
@@ -277,6 +289,7 @@ void saveAnnotations(const std::string& filename) {
         file << "    {\n";
         file << "      \"frame_number\": " << pair.first << ",\n";
         file << "      \"timestamp\": " << std::fixed << std::setprecision(3) << (pair.first / fps) << ",\n";
+        file << "      \"eyes_closed\": " << (ann.eyes_closed ? "true" : "false") << ",\n"; // NOVO
         file << "      \"left_eye\": {\"x\": " << ann.left_eye.x << ", \"y\": " << ann.left_eye.y << "},\n";
         file << "      \"right_eye\": {\"x\": " << ann.right_eye.x << ", \"y\": " << ann.right_eye.y << "}\n";
         file << "    }";
@@ -293,12 +306,18 @@ bool loadAnnotations(const std::string& filename) {
     
     std::cout << "Loading existing annotations from " << filename << "...\n";
     std::string line;
+    
     int frameNum = -1;
     int lx = -1, ly = -1, rx = -1, ry = -1;
+    bool closed = false; // Estado local de parsing
     
     while (std::getline(file, line)) {
         if (line.find("\"frame_number\":") != std::string::npos) {
              sscanf(line.c_str(), "      \"frame_number\": %d,", &frameNum);
+             closed = false; // Reset no início de nova frame
+        }
+        else if (line.find("\"eyes_closed\":") != std::string::npos) { // NOVO PARSER
+             if (line.find("true") != std::string::npos) closed = true;
         }
         else if (line.find("\"left_eye\":") != std::string::npos) {
              sscanf(line.c_str(), "      \"left_eye\": {\"x\": %d, \"y\": %d},", &lx, &ly);
@@ -307,8 +326,12 @@ bool loadAnnotations(const std::string& filename) {
              sscanf(line.c_str(), "      \"right_eye\": {\"x\": %d, \"y\": %d}", &rx, &ry);
              if (frameNum >= 0) {
                  EyeAnnotation ann;
-                 ann.left_eye = cv::Point(lx, ly); ann.left_set = true;
-                 ann.right_eye = cv::Point(rx, ry); ann.right_set = true;
+                 ann.left_eye = cv::Point(lx, ly); 
+                 ann.right_eye = cv::Point(rx, ry); 
+                 if (lx != -1 && ly != -1) ann.left_set = true;
+                 if (rx != -1 && ry != -1) ann.right_set = true;
+                 ann.eyes_closed = closed; // Carrega a flag
+                 
                  annotations[frameNum] = ann;
                  frameNum = -1;
              }
@@ -319,12 +342,17 @@ bool loadAnnotations(const std::string& filename) {
 }
 
 std::string getJsonFilename(const std::string& videoPath) {
+    // Find dir where video is located
     size_t lastSlash = videoPath.find_last_of("/\\");
+    std::string dir = (lastSlash == std::string::npos) ? "." : videoPath.substr(0, lastSlash);
+    
+    // Extract filename without extension
     std::string filename = (lastSlash == std::string::npos) ? videoPath : videoPath.substr(lastSlash + 1);
     size_t lastDot = filename.find_last_of('.');
     if (lastDot != std::string::npos) filename = filename.substr(0, lastDot);
     
-    return "testing/test_data/ground_truth_" + filename + ".json";
+    // Save JSON in the same dir
+    return dir + "/ground_truth_" + filename + ".json";
 }
 
 int main(int argc, char** argv) {
@@ -369,8 +397,20 @@ int main(int argc, char** argv) {
             case 'h': showHelp = !showHelp; updateDisplay(); break;
             
             // Prediction Feature
-            case 'f': propagateAnnotations(currentFrame, 15); break; // F = Fill Next 15
+            case 'f': propagateAnnotations(currentFrame, 15); break; 
             
+            // Toggle Eyes Closed
+            case 'x':
+                annotations[currentFrame].eyes_closed = !annotations[currentFrame].eyes_closed;
+                if (annotations[currentFrame].eyes_closed) {
+                    // Limpa cliques acidentais se existirem
+                    annotations[currentFrame].left_set = false;
+                    annotations[currentFrame].right_set = false;
+                }
+                isDirty = true;
+                updateDisplay();
+                break;
+
             // Editing
             case '1': 
                 annotations[currentFrame].left_set = false;
