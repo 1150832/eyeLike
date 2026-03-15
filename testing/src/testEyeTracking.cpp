@@ -42,6 +42,7 @@ struct TestMetrics {
     int closed_eyes_frames;
     int analyzed_left_eyes;
     int analyzed_right_eyes;
+    int frames_evaluated;
 
     std::vector<double> left_eye_errors, left_eye_errors_x, left_eye_errors_y;
     std::vector<double> right_eye_errors, right_eye_errors_x, right_eye_errors_y;
@@ -61,9 +62,11 @@ struct TestMetrics {
     double max_right, max_right_x, max_right_y;
 
     double std_left, std_right; 
+    
+    int within_5px, within_10px, within_20px, within_50px;
 
     TestMetrics() : total_annotated_frames(0), closed_eyes_frames(0),
-                    analyzed_left_eyes(0), analyzed_right_eyes(0),
+                    analyzed_left_eyes(0), analyzed_right_eyes(0), frames_evaluated(0),
                     avg_left(0), avg_left_x(0), avg_left_y(0),
                     avg_right(0), avg_right_x(0), avg_right_y(0), avg_total(0),
                     rmse_left(0), rmse_left_x(0), rmse_left_y(0),
@@ -71,7 +74,8 @@ struct TestMetrics {
                     median_left(0), median_right(0), median_total(0),
                     max_left(0), max_left_x(0), max_left_y(0),
                     max_right(0), max_right_x(0), max_right_y(0),
-                    std_left(0), std_right(0) {} // INICIALIZAÇÃO AQUI
+                    std_left(0), std_right(0),
+                    within_5px(0), within_10px(0), within_20px(0), within_50px(0) {} 
 };
 
 // Global variables
@@ -79,7 +83,7 @@ std::map<int, GroundTruth> groundTruths;
 std::map<int, Prediction> predictions;
 cv::VideoCapture videoCapture;
 int currentFrame = 0, totalFrames = 0;
-double fps = 30.0; // RESTAURADO!
+double fps = 30.0;
 cv::Mat currentFrameImage, displayImage;
 TestMetrics metrics;
 
@@ -87,9 +91,9 @@ TestMetrics metrics;
 bool loadGroundTruth(const std::string& filename);
 bool loadPredictions(const std::string& filename);
 void calculateMetrics();
-void displayMetrics(); // RESTAURADO!
+void displayMetrics();
 void saveMetricsReport(const std::string& filename);
-void saveCsvReport(const std::string& filename); // RESTAURADO!
+void saveCsvReport(const std::string& filename);
 void drawComparison(cv::Mat& image, int frameNum);
 void goToFrame(int frameNum);
 void updateDisplay();
@@ -163,7 +167,7 @@ void calculateMetrics() {
 
         const Prediction& pred = predictions[frameNum];
 
-        // Avaliação Independente do Olho Esquerdo
+        // Left Eye
         if (!gt.left_missing) {
             metrics.analyzed_left_eyes++;
             double err = calculateDistance(gt.left_eye, pred.left_eye);
@@ -180,7 +184,7 @@ void calculateMetrics() {
             if (errY > metrics.max_left_y) metrics.max_left_y = errY;
         }
 
-        // Avaliação Independente do Olho Direito
+        // Right Eye
         if (!gt.right_missing) {
             metrics.analyzed_right_eyes++;
             double err = calculateDistance(gt.right_eye, pred.right_eye);
@@ -196,12 +200,31 @@ void calculateMetrics() {
             if (errX > metrics.max_right_x) metrics.max_right_x = errX;
             if (errY > metrics.max_right_y) metrics.max_right_y = errY;
         }
+        
+        // Thresholds per Frame
+        if (!gt.left_missing || !gt.right_missing) {
+            metrics.frames_evaluated++;
+            double frame_avg_err = 0;
+            
+            if (!gt.left_missing && !gt.right_missing) {
+                frame_avg_err = (calculateDistance(gt.left_eye, pred.left_eye) + calculateDistance(gt.right_eye, pred.right_eye)) / 2.0;
+            } else if (!gt.left_missing) {
+                frame_avg_err = calculateDistance(gt.left_eye, pred.left_eye);
+            } else {
+                frame_avg_err = calculateDistance(gt.right_eye, pred.right_eye);
+            }
+
+            if (frame_avg_err <= 5.0) metrics.within_5px++;
+            if (frame_avg_err <= 10.0) metrics.within_10px++;
+            if (frame_avg_err <= 20.0) metrics.within_20px++;
+            if (frame_avg_err <= 50.0) metrics.within_50px++;
+        }
     }
 
-    // Matemática Segura
+    // Mathematical calculations
     int nL = metrics.left_eye_errors.size();
     if (nL > 0) {
-        double sL=0, sLx=0, sLy=0, sqL=0, sqLx=0, sqLy=0;
+        double sL=0, sLx=0, sLy=0, sqL=0, sqLx=0, sqLy=0, varLeft=0;
         for (int i=0; i<nL; i++) {
             sL += metrics.left_eye_errors[i]; sqL += std::pow(metrics.left_eye_errors[i], 2);
             sLx += metrics.left_eye_errors_x[i]; sqLx += std::pow(metrics.left_eye_errors_x[i], 2);
@@ -210,11 +233,13 @@ void calculateMetrics() {
         metrics.avg_left = sL/nL; metrics.avg_left_x = sLx/nL; metrics.avg_left_y = sLy/nL;
         metrics.rmse_left = std::sqrt(sqL/nL); metrics.rmse_left_x = std::sqrt(sqLx/nL); metrics.rmse_left_y = std::sqrt(sqLy/nL);
         metrics.median_left = getMedian(metrics.left_eye_errors);
+        for (int i=0; i<nL; i++) varLeft += std::pow(metrics.left_eye_errors[i] - metrics.avg_left, 2);
+        metrics.std_left = std::sqrt(varLeft/nL);
     }
 
     int nR = metrics.right_eye_errors.size();
     if (nR > 0) {
-        double sR=0, sRx=0, sRy=0, sqR=0, sqRx=0, sqRy=0;
+        double sR=0, sRx=0, sRy=0, sqR=0, sqRx=0, sqRy=0, varRight=0;
         for (int i=0; i<nR; i++) {
             sR += metrics.right_eye_errors[i]; sqR += std::pow(metrics.right_eye_errors[i], 2);
             sRx += metrics.right_eye_errors_x[i]; sqRx += std::pow(metrics.right_eye_errors_x[i], 2);
@@ -223,15 +248,6 @@ void calculateMetrics() {
         metrics.avg_right = sR/nR; metrics.avg_right_x = sRx/nR; metrics.avg_right_y = sRy/nR;
         metrics.rmse_right = std::sqrt(sqR/nR); metrics.rmse_right_x = std::sqrt(sqRx/nR); metrics.rmse_right_y = std::sqrt(sqRy/nR);
         metrics.median_right = getMedian(metrics.right_eye_errors);
-    }
-    // Standard Deviation
-    if (nL > 0) {
-        double varLeft = 0;
-        for (int i=0; i<nL; i++) varLeft += std::pow(metrics.left_eye_errors[i] - metrics.avg_left, 2);
-        metrics.std_left = std::sqrt(varLeft/nL);
-    }
-    if (nR > 0) {
-        double varRight = 0;
         for (int i=0; i<nR; i++) varRight += std::pow(metrics.right_eye_errors[i] - metrics.avg_right, 2);
         metrics.std_right = std::sqrt(varRight/nR);
     }
@@ -246,7 +262,6 @@ void calculateMetrics() {
     }
 }
 
-// RESTAURADO
 void displayMetrics() {
     std::cout << "\n===============================================\n";
     std::cout << "           EYE TRACKING TEST RESULTS          \n";
@@ -278,7 +293,7 @@ void saveMetricsReport(const std::string& filename) {
     file << "  Mean:   " << metrics.avg_total << " px\n";
     file << "  Median: " << metrics.median_total << " px\n\n";
 
-file << "[LEFT EYE DEEP DIVE]\n";
+    file << "[LEFT EYE DEEP DIVE]\n";
     file << "  Total Error -> RMSE: " << metrics.rmse_left << " | Mean: " << metrics.avg_left << " | Median: " << metrics.median_left << " | Max: " << metrics.max_left << " | StdDev: " << metrics.std_left << "\n";
     file << "  X-Axis Only -> RMSE: " << metrics.rmse_left_x << " | Mean: " << metrics.avg_left_x << " | Max: " << metrics.max_left_x << "\n";
     file << "  Y-Axis Only -> RMSE: " << metrics.rmse_left_y << " | Mean: " << metrics.avg_left_y << " | Max: " << metrics.max_left_y << "\n\n";
@@ -287,10 +302,19 @@ file << "[LEFT EYE DEEP DIVE]\n";
     file << "  Total Error -> RMSE: " << metrics.rmse_right << " | Mean: " << metrics.avg_right << " | Median: " << metrics.median_right << " | Max: " << metrics.max_right << " | StdDev: " << metrics.std_right << "\n";
     file << "  X-Axis Only -> RMSE: " << metrics.rmse_right_x << " | Mean: " << metrics.avg_right_x << " | Max: " << metrics.max_right_x << "\n";
     file << "  Y-Axis Only -> RMSE: " << metrics.rmse_right_y << " | Mean: " << metrics.avg_right_y << " | Max: " << metrics.max_right_y << "\n\n";
+    
+    int n = metrics.frames_evaluated;
+    if (n > 0) {
+        file << "3. ACCURACY THRESHOLDS (Avg Error per Frame)\n------------------------------------------\n";
+        file << "  <  5px error: " << std::setw(4) << metrics.within_5px  << " frames (" << (100.0 * metrics.within_5px / n)  << "%)\n";
+        file << "  < 10px error: " << std::setw(4) << metrics.within_10px << " frames (" << (100.0 * metrics.within_10px / n) << "%)\n";
+        file << "  < 20px error: " << std::setw(4) << metrics.within_20px << " frames (" << (100.0 * metrics.within_20px / n) << "%)\n";
+        file << "  < 50px error: " << std::setw(4) << metrics.within_50px << " frames (" << (100.0 * metrics.within_50px / n) << "%)\n";
+    }
+
     file.close();
 }
 
-// RESTAURADO
 void saveCsvReport(const std::string& filename) {
     std::ofstream file(filename);
     if (!file.is_open()) return;
@@ -369,15 +393,10 @@ void updateDisplay() {
 
     cv::Mat overlay; displayImage.copyTo(overlay);
     
-    // 1. Painel Superior (Frame Info & Teclas)
-    cv::rectangle(overlay, cv::Point(10, 10), cv::Point(470, 110), cv::Scalar(0, 0, 0), -1);
-    
-    // 2. Painel Inferior (Dashboard de Métricas ao Vivo)
+    cv::rectangle(overlay, cv::Point(10, 10), cv::Point(420, 110), cv::Scalar(0, 0, 0), -1);
     cv::rectangle(overlay, cv::Point(10, displayImage.rows - 160), cv::Point(450, displayImage.rows - 10), cv::Scalar(30, 30, 30), -1);
-    
     cv::addWeighted(overlay, 0.7, displayImage, 0.3, 0, displayImage);
 
-    // --- TEXTO DO PAINEL SUPERIOR ---
     std::stringstream ss; 
     ss << "Frame: " << currentFrame << " / " << (totalFrames - 1);
     cv::putText(displayImage, ss.str(), cv::Point(20, 40), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 2);
@@ -389,7 +408,6 @@ void updateDisplay() {
     bool hasGT = groundTruths.find(currentFrame) != groundTruths.end();
     bool hasPred = predictions.find(currentFrame) != predictions.end();
 
-    // --- TEXTO DO PAINEL INFERIOR (MÉTRICAS) ---
     if (hasGT && hasPred && !groundTruths[currentFrame].eyes_closed) {
         const GroundTruth& gt = groundTruths[currentFrame];
         const Prediction& pred = predictions[currentFrame];
@@ -398,7 +416,6 @@ void updateDisplay() {
         cv::putText(displayImage, "CURRENT FRAME METRICS", cv::Point(20, y_pos), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 255), 1);
         
         y_pos += 30;
-        // Olho Esquerdo
         if (!gt.left_missing) {
             ss.str(""); ss << std::fixed << std::setprecision(1);
             ss << "LEFT EYE : " << calculateDistance(gt.left_eye, pred.left_eye) << "px "
@@ -409,7 +426,6 @@ void updateDisplay() {
         }
         
         y_pos += 30;
-        // Olho Direito
         if (!gt.right_missing) {
             ss.str(""); ss << std::fixed << std::setprecision(1);
             ss << "RIGHT EYE: " << calculateDistance(gt.right_eye, pred.right_eye) << "px "
@@ -420,7 +436,6 @@ void updateDisplay() {
         }
         
         y_pos += 30;
-        // Erro Médio (Lidando com um ou os dois olhos ocultos)
         double l_total = gt.left_missing ? 0 : calculateDistance(gt.left_eye, pred.left_eye);
         double r_total = gt.right_missing ? 0 : calculateDistance(gt.right_eye, pred.right_eye);
         double avg_total = 0;
@@ -431,13 +446,11 @@ void updateDisplay() {
 
         if (!gt.left_missing || !gt.right_missing) {
             ss.str(""); ss << std::fixed << std::setprecision(1) << "AVG ERROR: " << avg_total << "px";
-            // Pinta de vermelho se o erro da frame passar dos 15px
             cv::Scalar errColor = (avg_total > 15.0) ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 255, 0);
             cv::putText(displayImage, ss.str(), cv::Point(20, y_pos), cv::FONT_HERSHEY_SIMPLEX, 0.6, errColor, 2);
         }
         
     } else if (hasGT && groundTruths[currentFrame].eyes_closed) {
-        // Alerta de Olhos Fechados
         cv::putText(displayImage, "STATUS: EYES CLOSED (Skipped from calculations)", cv::Point(20, displayImage.rows - 70), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(100, 100, 255), 2);
     } else if (!hasGT) {
         cv::putText(displayImage, "NO GROUND TRUTH ANNOTATION", cv::Point(20, displayImage.rows - 70), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(100, 100, 100), 2);
@@ -445,6 +458,7 @@ void updateDisplay() {
 
     cv::imshow("Eye Tracking Test Comparison", displayImage);
 }
+
 void goToFrame(int frameNum) {
     if (frameNum < 0) frameNum = 0;
     if (frameNum >= totalFrames) frameNum = totalFrames - 1;
@@ -456,11 +470,9 @@ void goToFrame(int frameNum) {
 int main(int argc, char** argv) {
     std::cout << "\n=== Eye Tracking Test Framework ===\n";
     
-    // VERIFICAÇÃO COM AJUDA DETALHADA
     if (argc < 4) {
         std::cout << "Erro: Argumentos insuficientes.\n";
         std::cout << "Uso: " << argv[0] << " <video_file> <ground_truth.json> <predictions.csv>\n";
-        std::cout << "Exemplo: " << argv[0] << " testing/test_data/test1.mov testing/test_data/gt.json testing/test_data/pred.csv\n\n";
         return -1;
     }
     
@@ -468,28 +480,14 @@ int main(int argc, char** argv) {
     std::string groundTruthPath = argv[2];
     std::string predictionsPath = argv[3];
     
-    std::cout << "Loading Ground Truth: " << groundTruthPath << "\n";
-    if (!loadGroundTruth(groundTruthPath)) {
-        std::cerr << "✗ Erro ao carregar Ground Truth.\n";
-        return -1;
-    }
-    
-    std::cout << "Loading Predictions: " << predictionsPath << "\n";
-    if (!loadPredictions(predictionsPath)) {
-        std::cerr << "✗ Erro ao carregar Predictions.\n";
-        return -1;
-    }
+    if (!loadGroundTruth(groundTruthPath)) return -1;
+    if (!loadPredictions(predictionsPath)) return -1;
     
     videoCapture.open(videoPath);
-    if (!videoCapture.isOpened()) { 
-        std::cerr << "✗ Erro: Nao foi possivel abrir o video: " << videoPath << "\n"; 
-        return -1; 
-    }
+    if (!videoCapture.isOpened()) return -1; 
     
     totalFrames = (int)videoCapture.get(cv::CAP_PROP_FRAME_COUNT);
     fps = videoCapture.get(cv::CAP_PROP_FPS);
-    
-    std::cout << "Video loaded successfully. Total frames: " << totalFrames << "\n";
     
     calculateMetrics();
     displayMetrics();
@@ -507,12 +505,6 @@ int main(int argc, char** argv) {
     
     cv::namedWindow("Eye Tracking Test Comparison", CV_WINDOW_NORMAL);
     goToFrame(0);
-    
-    // RESTAURAÇÃO DAS TECLAS DE NAVEGAÇÃO
-    std::cout << "\nKeyboard controls:\n";
-    std::cout << "  A / D             - Frame anterior / seguinte\n";
-    std::cout << "  W / S             - Saltar 10 frames para tras / frente\n";
-    std::cout << "  Q / ESC           - Sair\n\n";
     
     bool running = true;
     while (running) {
