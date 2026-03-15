@@ -341,7 +341,7 @@ int main( int argc, const char** argv ) {
           int waitTime = useCamera ? 10 : 1;
           int c = cv::waitKey(waitTime);
           
-          if( (char)c == 'c' || (char)c == 'q' ) { 
+          if ((char)c == 27 || (char)c == 'q' || (char)c == 'Q' || (char)c == 'c') {
             std::cout << "\nExiting...\n";
             break; 
           }
