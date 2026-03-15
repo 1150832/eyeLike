@@ -21,14 +21,13 @@ struct EyeAnnotation {
     cv::Point right_eye;
     bool left_set;
     bool right_set;
-    bool left_missing;  // NOVO: Olho esquerdo oculto/fora da câmara
-    bool right_missing; // NOVO: Olho direito oculto/fora da câmara
+    bool left_missing;  
+    bool right_missing; 
     bool eyes_closed;
     
     EyeAnnotation() : left_eye(-1, -1), right_eye(-1, -1), left_set(false), right_set(false), 
                       left_missing(false), right_missing(false), eyes_closed(false) {}
     
-    // Completo se estiver tudo fechado, OU se cada olho estiver definido OU marcado como ausente
     bool isComplete() const {
         if (eyes_closed) return true;
         bool l_ok = left_set || left_missing;
@@ -139,7 +138,7 @@ void mouseCallback(int event, int x, int y, int flags, void* userdata) {
     EyeAnnotation& ann = annotations[currentFrame];
     
     if (ann.eyes_closed) {
-        std::cout << "Olhos marcados como fechados. Remova a flag primeiro.\n";
+        std::cout << "Eyes marked as closed. Remove the flag first.\n";
         return;
     }
     
@@ -227,7 +226,7 @@ void drawUI(cv::Mat& img) {
     drawLine("[T] Reset Image");
     drawLine("-----------------------------");
     drawLine("[M] Save Progress (Manual)");
-    drawLine("[ESC] Quit");
+    drawLine("[ESC/Q] Quit");
     
     // Status Indicator
     y_start = img.rows - 70; 
@@ -415,7 +414,7 @@ int main(int argc, char** argv) {
         if (key == -1) continue;
         
         switch (key) {
-            case 27: running = false; break;
+            case 'q': case 'Q': case 27: running = false; break;
             case 'd': goToFrame(currentFrame + 1); break;
             case 'a': goToFrame(currentFrame - 1); break;
             case 32:  goToFrame(findNextUnannotated(currentFrame, true)); break;

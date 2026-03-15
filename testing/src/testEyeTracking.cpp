@@ -109,6 +109,18 @@ double getMedian(std::vector<double> v) {
     return v[v.size() / 2];
 }
 
+// ==========================================
+// NOVO: Extrator de Inteiros Robusto para JSON
+// ==========================================
+int getJsonInt(const std::string& line, const std::string& key) {
+    size_t pos = line.find(key);
+    if (pos == std::string::npos) return -1;
+    size_t colon = line.find(':', pos);
+    if (colon == std::string::npos) return -1;
+    try { return std::stoi(line.substr(colon + 1)); } 
+    catch(...) { return -1; }
+}
+
 bool loadGroundTruth(const std::string& filename) {
     std::ifstream file(filename);
     if (!file.is_open()) return false;
@@ -119,16 +131,18 @@ bool loadGroundTruth(const std::string& filename) {
 
     while (std::getline(file, line)) {
         if (line.find("\"frame_number\":") != std::string::npos) {
-            sscanf(line.c_str(), "      \"frame_number\": %d,", &frameNum);
-            closed = false; l_miss = false; r_miss = false;
+            frameNum = getJsonInt(line, "\"frame_number\"");
+            closed = l_miss = r_miss = false;
         }
         if (line.find("\"eyes_closed\":") != std::string::npos && line.find("true") != std::string::npos) closed = true;
         if (line.find("\"left_missing\":") != std::string::npos && line.find("true") != std::string::npos) l_miss = true;
         if (line.find("\"right_missing\":") != std::string::npos && line.find("true") != std::string::npos) r_miss = true;
 
-        if (line.find("\"left_eye\":") != std::string::npos) sscanf(line.c_str(), "      \"left_eye\": {\"x\": %d, \"y\": %d},", &leftX, &leftY);
+        if (line.find("\"left_eye\":") != std::string::npos) {
+            leftX = getJsonInt(line, "\"x\""); leftY = getJsonInt(line, "\"y\"");
+        }
         if (line.find("\"right_eye\":") != std::string::npos) {
-            sscanf(line.c_str(), "      \"right_eye\": {\"x\": %d, \"y\": %d}", &rightX, &rightY);
+            rightX = getJsonInt(line, "\"x\""); rightY = getJsonInt(line, "\"y\"");
             if (frameNum >= 0) {
                 groundTruths[frameNum] = GroundTruth(cv::Point(leftX, leftY), cv::Point(rightX, rightY), closed, l_miss, r_miss);
                 frameNum = -1; leftX = leftY = rightX = rightY = -1;
@@ -142,13 +156,18 @@ bool loadPredictions(const std::string& filename) {
     std::ifstream file(filename);
     if (!file.is_open()) return false;
     predictions.clear();
-    std::string line; std::getline(file, line);
+    std::string line; 
+    
     while (std::getline(file, line)) {
-        if (line.empty()) continue;
+        // NOVO: Identificação inteligente de cabeçalhos. Se começar com texto, salta. Se for número (Frame 0), avança!
+        if (line.empty() || std::isalpha(line[0])) continue; 
+        
         std::stringstream ss(line); std::string token; std::vector<std::string> tokens;
         while (std::getline(ss, token, ',')) tokens.push_back(token);
         if (tokens.size() >= 9) {
-            predictions[std::stoi(tokens[0])] = Prediction(cv::Point(std::stoi(tokens[7]), std::stoi(tokens[8])), cv::Point(std::stoi(tokens[5]), std::stoi(tokens[6])));
+            try {
+                predictions[std::stoi(tokens[0])] = Prediction(cv::Point(std::stoi(tokens[7]), std::stoi(tokens[8])), cv::Point(std::stoi(tokens[5]), std::stoi(tokens[6])));
+            } catch (...) {}
         }
     }
     file.close(); return true;
@@ -408,51 +427,56 @@ void updateDisplay() {
     bool hasGT = groundTruths.find(currentFrame) != groundTruths.end();
     bool hasPred = predictions.find(currentFrame) != predictions.end();
 
-    if (hasGT && hasPred && !groundTruths[currentFrame].eyes_closed) {
-        const GroundTruth& gt = groundTruths[currentFrame];
-        const Prediction& pred = predictions[currentFrame];
-        
-        int y_pos = displayImage.rows - 130;
-        cv::putText(displayImage, "CURRENT FRAME METRICS", cv::Point(20, y_pos), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 255), 1);
-        
-        y_pos += 30;
-        if (!gt.left_missing) {
-            ss.str(""); ss << std::fixed << std::setprecision(1);
-            ss << "LEFT EYE : " << calculateDistance(gt.left_eye, pred.left_eye) << "px "
-               << "(X:" << calculateDistanceX(gt.left_eye, pred.left_eye) << " Y:" << calculateDistanceY(gt.left_eye, pred.left_eye) << ")";
-            cv::putText(displayImage, ss.str(), cv::Point(20, y_pos), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 200, 200), 1);
-        } else {
-            cv::putText(displayImage, "LEFT EYE : MISSING (Occluded)", cv::Point(20, y_pos), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(100, 100, 100), 1);
-        }
-        
-        y_pos += 30;
-        if (!gt.right_missing) {
-            ss.str(""); ss << std::fixed << std::setprecision(1);
-            ss << "RIGHT EYE: " << calculateDistance(gt.right_eye, pred.right_eye) << "px "
-               << "(X:" << calculateDistanceX(gt.right_eye, pred.right_eye) << " Y:" << calculateDistanceY(gt.right_eye, pred.right_eye) << ")";
-            cv::putText(displayImage, ss.str(), cv::Point(20, y_pos), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(200, 255, 200), 1);
-        } else {
-            cv::putText(displayImage, "RIGHT EYE: MISSING (Occluded)", cv::Point(20, y_pos), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(100, 100, 100), 1);
-        }
-        
-        y_pos += 30;
-        double l_total = gt.left_missing ? 0 : calculateDistance(gt.left_eye, pred.left_eye);
-        double r_total = gt.right_missing ? 0 : calculateDistance(gt.right_eye, pred.right_eye);
-        double avg_total = 0;
-        
-        if (!gt.left_missing && !gt.right_missing) avg_total = (l_total + r_total) / 2.0;
-        else if (!gt.left_missing) avg_total = l_total;
-        else if (!gt.right_missing) avg_total = r_total;
+    // LÓGICA DE UI TOTALMENTE ROBUSTA
+    if (hasGT) {
+        if (groundTruths[currentFrame].eyes_closed) {
+            cv::putText(displayImage, "STATUS: EYES CLOSED (Skipped from calculations)", cv::Point(20, displayImage.rows - 70), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(100, 100, 255), 2);
+        } else if (hasPred) {
+            const GroundTruth& gt = groundTruths[currentFrame];
+            const Prediction& pred = predictions[currentFrame];
+            
+            int y_pos = displayImage.rows - 130;
+            cv::putText(displayImage, "CURRENT FRAME METRICS", cv::Point(20, y_pos), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 255), 1);
+            
+            y_pos += 30;
+            if (!gt.left_missing) {
+                ss.str(""); ss << std::fixed << std::setprecision(1);
+                ss << "LEFT EYE : " << calculateDistance(gt.left_eye, pred.left_eye) << "px "
+                   << "(X:" << calculateDistanceX(gt.left_eye, pred.left_eye) << " Y:" << calculateDistanceY(gt.left_eye, pred.left_eye) << ")";
+                cv::putText(displayImage, ss.str(), cv::Point(20, y_pos), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 200, 200), 1);
+            } else {
+                cv::putText(displayImage, "LEFT EYE : MISSING (Occluded)", cv::Point(20, y_pos), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(100, 100, 100), 1);
+            }
+            
+            y_pos += 30;
+            if (!gt.right_missing) {
+                ss.str(""); ss << std::fixed << std::setprecision(1);
+                ss << "RIGHT EYE: " << calculateDistance(gt.right_eye, pred.right_eye) << "px "
+                   << "(X:" << calculateDistanceX(gt.right_eye, pred.right_eye) << " Y:" << calculateDistanceY(gt.right_eye, pred.right_eye) << ")";
+                cv::putText(displayImage, ss.str(), cv::Point(20, y_pos), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(200, 255, 200), 1);
+            } else {
+                cv::putText(displayImage, "RIGHT EYE: MISSING (Occluded)", cv::Point(20, y_pos), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(100, 100, 100), 1);
+            }
+            
+            y_pos += 30;
+            double l_total = gt.left_missing ? 0 : calculateDistance(gt.left_eye, pred.left_eye);
+            double r_total = gt.right_missing ? 0 : calculateDistance(gt.right_eye, pred.right_eye);
+            double avg_total = 0;
+            
+            if (!gt.left_missing && !gt.right_missing) avg_total = (l_total + r_total) / 2.0;
+            else if (!gt.left_missing) avg_total = l_total;
+            else if (!gt.right_missing) avg_total = r_total;
 
-        if (!gt.left_missing || !gt.right_missing) {
-            ss.str(""); ss << std::fixed << std::setprecision(1) << "AVG ERROR: " << avg_total << "px";
-            cv::Scalar errColor = (avg_total > 15.0) ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 255, 0);
-            cv::putText(displayImage, ss.str(), cv::Point(20, y_pos), cv::FONT_HERSHEY_SIMPLEX, 0.6, errColor, 2);
+            if (!gt.left_missing || !gt.right_missing) {
+                ss.str(""); ss << std::fixed << std::setprecision(1) << "AVG ERROR: " << avg_total << "px";
+                cv::Scalar errColor = (avg_total > 15.0) ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 255, 0);
+                cv::putText(displayImage, ss.str(), cv::Point(20, y_pos), cv::FONT_HERSHEY_SIMPLEX, 0.6, errColor, 2);
+            }
+        } else {
+            // Se tiveres anotado o Ground Truth mas o algoritmo não detetou sequer a face nesta frame!
+            cv::putText(displayImage, "STATUS: PREDICTION MISSING (Face not detected by eyeLike)", cv::Point(20, displayImage.rows - 70), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 165, 255), 2);
         }
-        
-    } else if (hasGT && groundTruths[currentFrame].eyes_closed) {
-        cv::putText(displayImage, "STATUS: EYES CLOSED (Skipped from calculations)", cv::Point(20, displayImage.rows - 70), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(100, 100, 255), 2);
-    } else if (!hasGT) {
+    } else {
         cv::putText(displayImage, "NO GROUND TRUTH ANNOTATION", cv::Point(20, displayImage.rows - 70), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(100, 100, 100), 2);
     }
 
