@@ -6,6 +6,7 @@
 #include <fstream>
 #include <string>
 #include <queue>
+#include <deque> 
 #include <stdio.h>
 #include <math.h>
 
@@ -55,7 +56,11 @@ MqttMode mqttMode = MqttMode::PRODUCTION;
 std::ofstream outputFile;
 bool saveToFile = false;
 int globalFrameNumber = 0;
-bool headlessMode = false; // NOVO: Flag para modo sem interface gráfica
+bool headlessMode = false; 
+
+const int kMovingAverageWindow = 3; // jitter smoothing will average over this many frames
+std::deque<cv::Point> leftEyeHistory;
+std::deque<cv::Point> rightEyeHistory;
 
 /**
  * @function printUsage
@@ -426,6 +431,39 @@ cv::Rect findEyes(cv::Mat frame_gray, cv::Rect face) {
   } else {
       rightPupil = cv::Point(rightEyeRegion.width / 2, rightEyeRegion.height / 2);
   }
+
+  // ========================================================
+  // FILTRO DE SUAVIZAÇÃO DE SINAL (MOVING AVERAGE)
+  // ========================================================
+  
+  // 1. Adiciona as coordenadas atuais à memória histórica
+  leftEyeHistory.push_back(leftPupil);
+  rightEyeHistory.push_back(rightPupil);
+
+  // 2. Se a memória exceder o limite (ex: 3 frames), apagar a mais antiga
+  if (leftEyeHistory.size() > kMovingAverageWindow) {
+      leftEyeHistory.pop_front();
+  }
+  if (rightEyeHistory.size() > kMovingAverageWindow) {
+      rightEyeHistory.pop_front();
+  }
+
+  // 3. Calcular a média matemática das posições na memória
+  long sumLeftX = 0, sumLeftY = 0;
+  long sumRightX = 0, sumRightY = 0;
+  
+  for (const auto& p : leftEyeHistory) {
+      sumLeftX += p.x; sumLeftY += p.y;
+  }
+  for (const auto& p : rightEyeHistory) {
+      sumRightX += p.x; sumRightY += p.y;
+  }
+
+  // 4. Substituir a pupila atual pela pupila "suavizada"
+  leftPupil = cv::Point(sumLeftX / leftEyeHistory.size(), sumLeftY / leftEyeHistory.size());
+  rightPupil = cv::Point(sumRightX / rightEyeHistory.size(), sumRightY / rightEyeHistory.size());
+  
+  // ========================================================
 
   // get corner regions
   cv::Rect leftRightCornerRegion(leftEyeRegion);
