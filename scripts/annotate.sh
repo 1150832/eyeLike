@@ -1,10 +1,19 @@
 #!/bin/bash
-# Move to project root
 cd "$(dirname "$0")/.."
 
-if [ ! -f "build/annotationTool" ]; then
-    echo "Error: annotationTool not built. Run scripts/cmakeBuild.sh first."
+if [ "$#" -lt 1 ]; then
+    echo "=== Anottation Tool ==="
+    echo "Error: Missing arguments."
+    echo "Use: $0 <video_file>"
+    echo "Example: $0 testing/test_data/test1.mov"
     exit 1
 fi
 
-exec build/annotationTool "$@"
+VIDEO_PATH="$1"
+
+if [ ! -f "$VIDEO_PATH" ]; then
+    echo "✗ Error: the video '$VIDEO_PATH' was not found!"
+    exit 1
+fi
+
+./build/annotationTool "$VIDEO_PATH"

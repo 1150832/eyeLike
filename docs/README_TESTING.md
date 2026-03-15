@@ -1,54 +1,52 @@
 # Eye Tracking Testing Framework & Annotation Tool
 
-Este repositório inclui um ecossistema completo para testar, anotar e avaliar a precisão do algoritmo `eyeLike`. As ferramentas foram desenhadas para serem robustas, altamente visuais e gerarem relatórios de qualidade académica para análise de dados.
+Este repositório inclui um ecossistema completo para testar, anotar e avaliar a precisão do algoritmo `eyeLike`. As ferramentas foram desenhadas para serem robustas, altamente visuais e gerarem relatórios de qualidade académica para análise de dados, lidando de forma inteligente com oclusões (olhos ocultos).
 
-## 🚀 Como Compilar as Ferramentas
+## 🚀 Como Compilar
 
-As ferramentas de teste partilham o mesmo sistema de build do projeto principal (CMake). Para compilar as ferramentas de anotação e avaliação, corre o seguinte script na raiz do projeto:
-
+Para compilar as ferramentas de anotação e avaliação (independentes do projeto principal), corre o script na raiz do projeto:
 ```bash
 ./scripts/buildTesting.sh
 ```
-Isto irá gerar os executáveis `annotationTool` e `testEyeTracking` dentro da pasta `build/`.
+*(Nota: Para compilar o algoritmo `eyeLike` principal, deves usar o `./scripts/cmakeBuild.sh`)*
 
 ---
 
 ## 1. Ferramenta de Anotação (`annotationTool`)
 
-Uma ferramenta gráfica para criar a "Verdade Terrestre" (Ground Truth) num vídeo. Permite marcar manualmente o centro dos olhos humana e visualmente para futura comparação com a previsão do algoritmo.
+Uma interface gráfica para criar o "Ground Truth" num vídeo. 
 
 **Como correr:**
 ```bash
-./build/annotationTool testing/test_data/video_de_teste.mov
+./scripts/annotate.sh testing/test_data/video_de_teste.mov
 ```
 
 ### ✨ Funcionalidades Avançadas de Anotação:
-* **Validação de Olhos Fechados (Tecla X):** Se a pessoa fechar os olhos no vídeo, prime `X`. A frame será marcada como "olhos fechados". O teste de erro ignorará a matemática destas frames específicas para não penalizar a precisão final do algoritmo com "falsos positivos".
-* **Timeline Visual (Barra de Progresso):** Na base do ecrã, uma barra de progresso dinâmica mapeia o teu trabalho:
-  * **Cinzento:** Frames não anotadas.
-  * **Verde:** Frames corretamente anotadas (Olhos Abertos).
-  * **Amarelo:** Frames marcadas propositadamente como "Olhos Fechados".
-  * **Linha Vermelha:** O cursor indicando a frame atual.
-* **Auto-Save Inteligente:** Para prevenir perda de dados, o progresso é guardado automaticamente a cada 20 cliques/alterações diretamente na mesma pasta do vídeo (ex: `testing/test_data/ground_truth_video.json`).
+* **Suporte para Oclusões (Teclas 3 e 4):** Se a pessoa virar a cara e um dos olhos desaparecer da câmara, podes marcar esse olho especificamente como "Oculto". O teste estatístico avaliará os olhos de forma independente, não descartando a frame inteira.
+* **Validação de Olhos Fechados (Tecla X):** Para marcares um frame completo com olhos fechados, prime `X`. O cálculo do erro ignorará estas frames para não penalizar a precisão do algoritmo.
+* **Timeline Visual (Barra de Progresso):** Uma barra na base mapeia o progresso: Cinzento (não anotado), Verde (ambos olhos abertos), Azul (1 olho oculto), Amarelo (olhos fechados).
+* **Auto-Save Inteligente:** O progresso é guardado automaticamente a cada 20 alterações diretamente na mesma pasta do vídeo.
 
 ### ⌨️ Controlos da Interface Gráfica:
 | Tecla | Ação |
 |-------|------|
 | `A` / `D` | Frame anterior / Frame seguinte |
 | `Espaço` | Saltar para a próxima frame não anotada (Acelera o fluxo) |
-| `1` / `2` | Marcar Olho Esquerdo (Azul) / Direito (Verde) com o rato |
-| `X` | Alternar estado de "Olhos Fechados" |
-| `F` | Propagar a marcação atual para as próximas 15 frames |
-| `Backspace` | Limpar anotação da frame atual |
+| `1` / `2` | Limpar a marcação do Olho Esquerdo / Direito (para marcar novamente com o rato) |
+| `3` / `4` | Alternar estado "Oculto/Fora do Vídeo" para o Olho Esquerdo / Direito |
+| `X` | Alternar estado de "Ambos os Olhos Fechados" |
+| `F` | Propagar as marcações da frame atual para as próximas 15 frames |
+| `Backspace` | Limpar completamente a anotação da frame atual |
 | `W` / `S` | Aumentar / Diminuir Brilho do vídeo |
 | `C` | Ativar/Desativar contraste adaptativo (CLAHE) - útil para olhos escuros |
 | `M` | Guardar progresso manualmente |
+| `ESQ` | Terminar execução |
 
 ---
 
 ## 2. Gerar Previsões (`eyeLike` em Modo Headless)
 
-O `eyeLike` pode agora correr em modo **Headless** (sem interface gráfica e sem renderização de janelas). Isto permite processar vídeos a velocidades extremamente altas usando 100% da capacidade de cálculo do processador, sendo também o modo ideal para correr o software em sistemas IoT limitados (como o Raspberry Pi).
+O `eyeLike` pode correr em modo **Headless** (sem interface gráfica), permitindo processar os videos mais rapidamente ou correr em sistemas IoT limitados (i.e. Raspeberry Pi sem display para output gráfico).
 
 **Como gerar o ficheiro de previsões (.csv):**
 ```bash
@@ -59,56 +57,47 @@ O `eyeLike` pode agora correr em modo **Headless** (sem interface gráfica e sem
 
 ## 3. Testes de Qualidade Académica (`testEyeTracking`)
 
-Esta ferramenta cruza os dados do teu Ground Truth com as previsões geradas pelo algoritmo e extrai um relatório científico.
+Ferramenta que cruza o Ground Truth com as previsões do algoritmo, calculando a matemática olho a olho de forma independente.
 
-**Como correr (usando o script que deteta as dependências automaticamente):**
+**Como avaliar um vídeo já processado:**
 ```bash
 ./scripts/runTest.sh testing/test_data/video_de_teste.mov
 ```
 
 ### 📊 Relatórios Analíticos Gerados (na pasta `testing/test_reports/`):
-A ferramenta exporta os dados em dois formatos distintos para facilitar a interpretação e a análise estatística:
-
-1. **`report_video.txt` (Executive Summary):** Um resumo de fácil leitura que categoriza o erro global e divide a performance do algoritmo entre o olho esquerdo e direito.
-   * **RMSE (Root Mean Square Error):** Métrica de rigor científico que penaliza desvios/erros grandes de tracking.
-   * **Mediana (Robustez):** Apresenta o erro típico ignorando "outliers" (ex: quando o algoritmo perde o rosto temporariamente).
-   * **Separação Espacial (Eixo X vs Eixo Y):** Desmonta o erro de tracking para entender se o algoritmo tem maior dificuldade em seguir o movimento horizontal (X) ou vertical (Y) dos olhos.
-2. **`report_video.csv` (Base de Dados):** Dados numéricos limpos frame-a-frame, concebidos para serem importados no Excel, Python ou R para a criação de gráficos de dispersão (Scatter Plots) ou futuro treino de modelos de Machine Learning.
+1. **`report_video.txt` (Executive Summary):** * **RMSE (Root Mean Square Error):** Penaliza desvios grandes, métrica de excelência para *tracking*.
+   * **Desvio Padrão (StdDev) & Média:** Avalia a estabilidade e o erro global da deteção.
+   * **Mediana (Robustez):** Apresenta o erro típico isolando "outliers" (ex: perdas de face temporárias).
+   * **Separação Espacial (Eixos X/Y):** Avalia a precisão horizontal versus vertical.
+2. **`report_video.csv` (Base de Dados):** Dados numéricos limpos frame-a-frame para importação no Excel ou Python.
 
 ### 👁️ Interface de Validação Visual (HUD):
-Durante o teste, a janela exibe o vídeo em tempo real com os dados sobrepostos:
-* **Círculos Preenchidos:** Verdade Terrestre (Onde o olho realmente está).
-* **Círculos Vazados + Linhas:** Previsão do algoritmo e a direção do desvio.
-* **Dashboard em Tempo Real:** Uma consola no ecrã apresenta as distâncias de erro exatas. Se o erro médio da frame ultrapassar os 15 pixeis, o texto pinta-se de vermelho para evidenciar a falha de deteção.
+* `A` / `D`: Navegar frame a frame.
+* `W` / `S`: Saltar rápido de 10 em 10 frames.
+* **Dashboard em Tempo Real:** Uma consola sobreposta mostra os erros em pixeis, e desenha o texto a vermelho se o erro médio ultrapassar 15px.
 
 ---
 
 ## 4. Automação em Lote (Batch Testing Pipeline)
 
-Para lidar com bases de dados grandes, o repositório inclui um script de pipeline "ponta-a-ponta" que automatiza a recolha de resultados.
+Pipeline "ponta-a-ponta" que automatiza a recolha de resultados para bases de dados.
 
 **Modo de Vídeo Único (Com validações guiadas):**
 ```bash
 ./scripts/run_complete_test.sh testing/test_data/video_de_teste.mov
 ```
-*(Verifica as dependências, permite anotar na hora se faltar o Ground Truth e corre os testes em sequência).*
+*(Verifica se o JSON existe, permite abrir o `annotateTool` na hora, corre o `eyeLike` em `--headless` e avalia no fim).*
 
-**Modo BATCH (Processar todos os vídeos em simultâneo):**
+**Modo BATCH (Processar múltiplos vídeos):**
 ```bash
 ./scripts/run_complete_test.sh --all
 ```
-*(O sistema irá procurar todos os vídeos na pasta de testes, isolar apenas os que já contêm anotações, gerar as previsões `--headless` no background e calcular os relatórios científicos para todos eles num único fluxo de trabalho).*
+*(Procura todos os vídeos com anotações em `test_data/`, gera as previsões no background e compila os relatórios científicos para todos eles num único fluxo).*
 
 ---
 
 ## 📡 Integração MQTT para IoT
-
-O `eyeLike` suporta o envio contínuo de coordenadas processadas para um Broker MQTT, o que permite criar dashboards na cloud em tempo real.
-
 **Exemplo de Execução (Modo IoT Oculto):**
 ```bash
 ./build/bin/eyeLike -c -m tcp://localhost:1883 -t eyetracker/coordinates --mqtt-mode heartbeat --headless
 ```
-* **Modos de Operação MQTT:** * `production`: Envio contínuo (QoS 0, Payload leve).
-  * `debug`: Payload extenso contendo coordenadas brutas e ID da câmara.
-  * `heartbeat`: Envio reativo (QoS 1, Payload retido). Transmite apenas quando existe uma alteração significativa de posição na face ou olhos, poupando largura de banda de rede.
