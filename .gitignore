@@ -13,7 +13,7 @@ captures/*
 # Exception: do not ignore the .gitkeep file
 !captures/.gitkeep
 
-# macOS specific (Essential for your MacBook Pro)
+# macOS specific 
 .DS_Store
 *.dSYM/
 
@@ -26,6 +26,7 @@ captures/*
 testing/test_reports/
 
 # Test data (keeps the repo light)
+testing/test_data/
 testing/test_data/*.mp4
 testing/test_data/*.avi
 testing/test_data/*.mov
