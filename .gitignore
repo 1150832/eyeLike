@@ -32,6 +32,12 @@ testing/test_data/*.avi
 testing/test_data/*.mov
 testing/test_data/*.csv
 
+# Ignora todos os ficheiros dentro da pasta test_reports
+testing/test_reports/*
+
+# Mas obriga o Git a rastrear o ficheiro .gitkeep (a exceção)
+!testing/test_reports/.gitkeep
+
 # IDE specific
 .vscode/
 .idea/
