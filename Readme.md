@@ -1,6 +1,8 @@
 ## eyeLike
 An OpenCV based webcam gaze tracker based on a simple image gradient-based eye center algorithm by Fabian Timm.
 
+*Note: This repository is currently being expanded as part of an MSc Thesis in Electrical and Computer Engineering at Instituto Superior de Engenharia do Porto (ISEP). The goal is the development of a modular, low-cost 3D EyeTracker system leveraging the eyelike functionality running in a modular architecture, such as a Raspberry Pi, using Image Analysis and Machine Learning. The tracking data is standardized and published via MQTT, allowing the module to work standalone for safety monitoring or in a cluster for 3D positioning evaluation.*
+
 ## DISCLAIMER
 **This does not track gaze yet.** It is basically just a developer reference implementation of Fabian Timm's algorithm that shows some debugging windows with points on your pupils.
 
@@ -14,8 +16,6 @@ where the user is looking.
 
 Current version detects both eyes to improve 3d head tracking. Eyes position is presented in global image coordinates.
 
-If anyone with more experience than me has ideas on how to effectively track a reference point or head pose
-so that the gaze point on the screen can be calculated contact me.
 
 ## Building
 
@@ -38,8 +38,28 @@ mkdir build
 ```
 then open the XCode project in the build folder and run from there.
 
-### On Windows
-There is some way to use CMake on Windows but I am not familiar with it.
+### On Windows (MSVC)
+
+The Windows environment requires a local installation of OpenCV and the use of `vcpkg` for the MQTT networking dependencies.
+
+**1. Prerequisites & Dependencies:**
+* Ensure Visual Studio C++ Build Tools and CMake are installed.
+* Extract **OpenCV 4.x** to `C:\opencv`. 
+  * *Critical:* You must add `C:\opencv\build\x64\vc16\bin` to your Windows `Path` Environment Variable so the system can locate the `.dll` files at runtime.
+* Install **vcpkg** and the Eclipse Paho MQTT C++ wrapper:
+  ```powershell
+  cd ~
+  git clone [https://github.com/microsoft/vcpkg.git](https://github.com/microsoft/vcpkg.git)
+  cd vcpkg
+  .\bootstrap-vcpkg.bat
+  .\vcpkg install paho-mqttpp3:x64-windows
+
+**2. Compilation:**
+* Adjust the VCPKG_ROOT path inside scripts\win\cmakeBuild.bat if your vcpkg is not installed in the default user directory.
+Then, run:
+  ```powershell
+  .\scripts\win\cmakeBuild.bat
+* The compiled binaries (eyelike.exe, annotationTool.exe, and testEyeTracking.exe) will be generated inside the build\Release folder, alongside the automatically linked MQTT .dll files.
 
 ## Blog Article:
 - [Using Fabian Timm's Algorithm](http://thume.ca/projects/2012/11/04/simple-accurate-eye-center-tracking-in-opencv/)
