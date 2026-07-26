@@ -15,13 +15,20 @@ set BATCH_MODE=false
 if "%~1"=="--all" (
     set BATCH_MODE=true
     echo Iniciando modo BATCH TESTING...
-    echo A procurar videos em testing\test_data\...
+    
+    :: Trava de seguranca para evitar execucoes cegas
+    if not exist "testing\test_data\video" (
+        echo [ERRO FATAL] A pasta testing\test_data\video nao foi encontrada na raiz do projeto!
+        goto end
+    )
+    
+    echo A procurar videos recursivamente em testing\test_data\video\...
     
     set success_count=0
     set total_count=0
     
-    :: Itera sobre os formatos suportados
-    for %%V in (testing\test_data\*.mov testing\test_data\*.mp4 testing\test_data\*.avi testing\test_data\*.mkv) do (
+    :: Itera sobre os formatos suportados de forma RECURSIVA (/R) na pasta correta
+    for /R "testing\test_data\video" %%V in (*.mov *.mp4 *.avi *.mkv) do (
         if exist "%%V" (
             set "DIRNAME=%%~dpV"
             set "FILENAME=%%~nV"
@@ -42,7 +49,7 @@ if "%~1"=="--all" (
     echo ===================================================
     echo BATCH TESTING CONCLUIDO
     echo Processados com sucesso: !success_count! / !total_count! videos anotados
-    echo Todos os relatorios estao em testing\test_reports\
+    echo Todos os relatorios estao em test_reports\
     goto end
 ) else (
 :: ==========================================
@@ -74,8 +81,8 @@ echo ===================================================
 echo Uso: %0 [video_file ^| --all]
 echo.
 echo Exemplos:
-echo  %0 testing\test_data\test1.mov  (Corre para um unico video)
-echo  %0 --all                        (Testa em batch TODOS os videos anotados)
+echo  %0 testing\test_data\video\mac\test1.mov  (Corre para um unico video)
+echo  %0 --all                                  (Testa em batch TODOS os videos anotados)
 exit /b 1
 
 
@@ -132,7 +139,7 @@ echo [OK] Predicoes geradas.
 
 :: 3. Correr os Testes de Qualidade
 echo [^>] A correr os testes de qualidade...
-call .\scripts\runTest.bat "%VID%"
+call .\scripts\win\runTest.bat "%VID%"
 
 if %ERRORLEVEL% NEQ 0 (
     echo [ERRO] Os testes de qualidade falharam.

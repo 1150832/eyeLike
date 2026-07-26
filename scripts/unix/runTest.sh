@@ -21,5 +21,6 @@ if [ ! -f "$GROUND_TRUTH" ] || [ ! -f "$PREDICTIONS" ]; then
     exit 1
 fi
 
-mkdir -p testing/test_reports
+# Corrigido para a nova estrutura na raiz do repositorio
+mkdir -p test_reports
 ./build/testEyeTracking "$VIDEO_PATH" "$GROUND_TRUTH" "$PREDICTIONS"

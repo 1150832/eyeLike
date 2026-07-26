@@ -4,12 +4,17 @@
 #include <iostream>
 #include <iomanip>
 #include <cmath>
+#include <ctime>
 
 #ifdef __APPLE__
 #include <sys/socket.h>
 #include <sys/sysctl.h>
 #include <net/if.h>
 #include <net/if_dl.h>
+#elif defined(_WIN32)
+#include <winsock2.h>
+#include <iphlpapi.h>
+#pragma comment(lib, "iphlpapi.lib")
 #elif __linux__
 #include <sys/ioctl.h>
 #include <net/if.h>
@@ -72,12 +77,50 @@ std::string MqttPublisher::getMacAddress() {
     std::stringstream ss;
     ss << std::hex << std::setfill('0');
     for (int i = 0; i < 6; i++) {
-        // Removed colon for clean topic usage
         ss << std::setw(2) << (int)ptr[i];
     }
     mac = ss.str();
     free(buf);
+
+#elif defined(_WIN32)
+    ULONG outBufLen = 15000;
+    PIP_ADAPTER_ADDRESSES pAddresses = (PIP_ADAPTER_ADDRESSES)malloc(outBufLen);
     
+    if (pAddresses != NULL) {
+        DWORD dwRetVal = GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_INCLUDE_PREFIX, NULL, pAddresses, &outBufLen);
+        
+        if (dwRetVal == ERROR_BUFFER_OVERFLOW) {
+            free(pAddresses);
+            pAddresses = (PIP_ADAPTER_ADDRESSES)malloc(outBufLen);
+            dwRetVal = GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_INCLUDE_PREFIX, NULL, pAddresses, &outBufLen);
+        }
+        
+        if (dwRetVal == NO_ERROR) {
+            PIP_ADAPTER_ADDRESSES pCurrAddresses = pAddresses;
+            while (pCurrAddresses) {
+                // Seleciona adaptadores físicos Ethernet (6) ou Wi-Fi (71)
+                if ((pCurrAddresses->IfType == IF_TYPE_ETHERNET_CSMACD || 
+                     pCurrAddresses->IfType == IF_TYPE_IEEE80211) && 
+                    pCurrAddresses->PhysicalAddressLength == 6) {
+
+                    std::stringstream ss;
+                    ss << std::hex << std::setfill('0');
+                    for (int i = 0; i < 6; i++) {
+                        ss << std::setw(2) << (int)pCurrAddresses->PhysicalAddress[i];
+                    }
+                    std::string macStr = ss.str();
+                    if (!macStr.empty() && macStr != "000000000000") {
+                        mac = macStr;
+                        free(pAddresses);
+                        return mac;
+                    }
+                }
+                pCurrAddresses = pCurrAddresses->Next;
+            }
+        }
+        if (pAddresses) free(pAddresses);
+    }
+
 #elif __linux__
     struct ifreq ifr;
     struct ifconf ifc;
@@ -107,7 +150,6 @@ std::string MqttPublisher::getMacAddress() {
                     std::stringstream ss;
                     ss << std::hex << std::setfill('0');
                     for (int i = 0; i < 6; i++) {
-                        // Removed colon for clean topic usage
                         ss << std::setw(2) << (int)ptr[i];
                     }
                     mac = ss.str();
@@ -125,13 +167,11 @@ std::string MqttPublisher::getMacAddress() {
 bool MqttPublisher::connect(const std::string& broker, const std::string& clientId, 
                              const std::string& baseTopicParam, MqttMode publishMode) {
     try {
-        // Use simplified topic structure: base/sensor_ID
         baseTopic = baseTopicParam + "/" + sensorId;
         mode = publishMode;
         
         client = new mqtt::async_client(broker, clientId + "_" + macAddress);
         
-        // Configure Last Will and Testament (LWT)
         std::string lwt_topic = baseTopic + "/status";
         mqtt::will_options willOpts(lwt_topic, std::string("offline"), 1, true);
 
@@ -159,10 +199,7 @@ bool MqttPublisher::connect(const std::string& broker, const std::string& client
         connected = true;
         enabled = true;
         
-        // Publish online status
         publishToTopic("/status", "online", 1, true);
-        
-        // Publish discovery information
         publishDiscovery();
         
         std::cout << "✓ Connected successfully!\n";
@@ -177,7 +214,6 @@ bool MqttPublisher::connect(const std::string& broker, const std::string& client
     }
 }
 
-// Updated helper with 'retained' parameter
 void MqttPublisher::publishToTopic(const std::string& subtopic, const std::string& payload, int qos, bool retained) {
     if (!isConnected()) return;
     
@@ -185,7 +221,7 @@ void MqttPublisher::publishToTopic(const std::string& subtopic, const std::strin
         std::string fullTopic = baseTopic + subtopic;
         mqtt::message_ptr msg = mqtt::make_message(fullTopic, payload);
         msg->set_qos(qos);
-        msg->set_retained(retained); // Set retention
+        msg->set_retained(retained);
         client->publish(msg);
     } catch (const mqtt::exception& e) {
         std::cerr << "MQTT publish error: " << e.what() << std::endl;
@@ -194,7 +230,6 @@ void MqttPublisher::publishToTopic(const std::string& subtopic, const std::strin
 
 bool MqttPublisher::hasSignificantChange(int newFaceX, int newFaceY, int newFaceW, int newFaceH,
                                           int newLeftX, int newLeftY, int newRightX, int newRightY) {
-    // Threshold: 5 pixels for position, 10 pixels for size
     int posThreshold = 5;
     int sizeThreshold = 10;
     
@@ -213,22 +248,19 @@ void MqttPublisher::publishEyeData(int frame, int faceX, int faceY, int faceW, i
                                     bool faceDetected) {
     if (!isConnected()) return;
     
-    // Determine QoS and Retain based on mode
     int qos = 0;
     bool retain = false;
     
     if (mode == MqttMode::HEARTBEAT) {
-        qos = 1;        // Ensure delivery for state changes
-        retain = true;  // Keep last known state on broker
+        qos = 1;
+        retain = true;
         
-        // Filter changes
         if (faceDetected == lastFaceDetected && 
             !hasSignificantChange(faceX, faceY, faceW, faceH, leftEyeX, leftEyeY, rightEyeX, rightEyeY)) {
-            return; // No significant change, skip publishing
+            return;
         }
     }
     
-    // Update last values
     lastFaceX = faceX; lastFaceY = faceY;
     lastFaceW = faceW; lastFaceH = faceH;
     lastLeftX = leftEyeX; lastLeftY = leftEyeY;
@@ -239,7 +271,6 @@ void MqttPublisher::publishEyeData(int frame, int faceX, int faceY, int faceW, i
         double timestamp = frame / 30.0;
         
         if (mode == MqttMode::DEBUG) {
-            // Debug mode: Full JSON with MAC/ID included (as requested)
             std::ostringstream json;
             json << "{"
                  << "\"sensor_id\":\"" << sensorId << "\","
@@ -258,9 +289,6 @@ void MqttPublisher::publishEyeData(int frame, int faceX, int faceY, int faceW, i
             publishToTopic("/debug/raw", json.str(), 0, false);
             
         } else {
-            // Production & Heartbeat: Optimized JSON (No MAC/ID in payload)
-            
-            // 1. Topic: .../face
             std::ostringstream faceJson;
             faceJson << "{"
                      << "\"frame\":" << frame << ","
@@ -273,10 +301,8 @@ void MqttPublisher::publishEyeData(int frame, int faceX, int faceY, int faceW, i
             }
             faceJson << "}";
             
-            // Publish Face with specific QoS/Retain
             publishToTopic("/face", faceJson.str(), qos, retain);
             
-            // 2. Topic: .../eyes (Only if face detected)
             if (faceDetected) {
                 std::ostringstream eyesJson;
                 eyesJson << "{"
@@ -300,7 +326,6 @@ void MqttPublisher::publishEyeData(int frame, int faceX, int faceY, int faceW, i
 void MqttPublisher::publishHeartbeat() {
     if (!isConnected()) return;
     
-    // Heartbeat status message (always QoS 1, Retained)
     std::ostringstream payload;
     payload << "{\"status\":\"alive\",\"timestamp\":" << std::time(nullptr) << "}";
     publishToTopic("/heartbeat", payload.str(), 1, true);
@@ -333,7 +358,6 @@ void MqttPublisher::publishDiscovery() {
 void MqttPublisher::disconnect() {
     if (client && connected) {
         try {
-            // Publish offline status
             publishToTopic("/status", "offline", 1, true);
             
             std::cout << "\nDisconnecting from MQTT broker...\n";

@@ -13,9 +13,10 @@ captures/*
 # Exception: do not ignore the .gitkeep file
 !captures/.gitkeep
 
-# macOS specific 
+# System specific and IDE temporary files
 .DS_Store
 *.dSYM/
+.vscode/
 
 # C++ / Project specific
 *.o
@@ -24,6 +25,9 @@ captures/*
 
 # Testing and temporary output
 testing/test_reports/
+test_reports/telemetry/*.csv
+3d_telemetry_log.csv
+*.png
 
 # Test data (keeps the repo light)
 testing/test_data/

@@ -4,13 +4,13 @@ cd "$(dirname "$0")/.."
 
 print_usage() {
     echo "╔═══════════════════════════════════════╗"
-    echo "║  Eye Tracking Quality Test Pipeline  ║"
+    echo "║  Eye Tracking Quality Test Pipeline   ║"
     echo "╚═══════════════════════════════════════╝"
     echo "Usage: $0 [video_file | --all]"
     echo ""
     echo "Examples:"
-    echo "  $0 testing/test_data/test1.mov  (Run for a single video)"
-    echo "  $0 --all                        (Batch test ALL annotated videos)"
+    echo "  $0 testing/test_data/video/mac/test1.mov  (Run for a single video)"
+    echo "  $0 --all                                  (Batch test ALL annotated videos)"
     exit 1
 }
 
@@ -61,7 +61,7 @@ process_video() {
 
     echo "✓ Ground truth confirmed."
 
-    # 2. Gerar Previsões (Usando a nova flag HEADLESS!)
+    # 2. Gerar Previsões (Usando a flag HEADLESS)
     echo "▶ Generating predictions with eyeLike (Headless Mode)..."
     ./build/eyeLike -v "$VIDEO" -o "$PRED" --headless
     
@@ -74,7 +74,6 @@ process_video() {
 
     # 3. Correr os Testes de Qualidade
     echo "▶ Running quality tests..."
-    # O runTest.sh que atualizámos já só precisa do caminho do vídeo!
     ./scripts/runTest.sh "$VIDEO"
     
     if [ $? -ne 0 ]; then
@@ -95,16 +94,20 @@ BATCH_MODE=false
 if [ "$1" = "--all" ]; then
     BATCH_MODE=true
     echo "Starting BATCH TESTING mode..."
-    echo "Looking for videos in testing/test_data/..."
+    
+    # Trava de segurança para evitar execuções cegas
+    if [ ! -d "testing/test_data/video" ]; then
+        echo "✗ Fatal Error: Directory testing/test_data/video not found in project root!"
+        exit 1
+    fi
+    
+    echo "Looking for videos recursively in testing/test_data/video/..."
     
     success_count=0
     total_count=0
     
-    # Encontra todos os vídeos na pasta
-    for VIDEO in testing/test_data/*.{mov,mp4,avi,mkv}; do
-        # Evita falhas se a pasta estiver vazia
-        [ -e "$VIDEO" ] || continue
-        
+    # Encontra todos os vídeos na pasta e subpastas de forma recursiva
+    while IFS= read -r VIDEO; do
         # Antes de processar, verifica silenciosamente se tem anotações
         DIRNAME=$(dirname "$VIDEO")
         FILENAME=$(basename "$VIDEO" | sed 's/\.[^.]*$//')
@@ -119,12 +122,12 @@ if [ "$1" = "--all" ]; then
         else
             echo "Skipping $VIDEO (No annotations found)"
         fi
-    done
+    done < <(find testing/test_data/video/ -type f \( -iname "*.mov" -o -iname "*.mp4" -o -iname "*.avi" -o -iname "*.mkv" \))
     
     echo "==================================================="
     echo "BATCH TESTING COMPLETE"
     echo "Successfully processed: $success_count / $total_count annotated videos"
-    echo "All reports are available in testing/test_reports/"
+    echo "All reports are available in test_reports/"
     
 else
     # MODO SINGLE VIDEO
