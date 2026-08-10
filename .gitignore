@@ -45,3 +45,8 @@ testing/test_reports/*
 # IDE specific
 .vscode/
 .idea/
+
+# Ignorar imagens de input e figuras geradas localmente na pasta tools/
+tools/*.png
+tools/*.jpg
+tools/*.pdf
