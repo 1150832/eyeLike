@@ -44,7 +44,7 @@ def load_generic_projection_matrices():
         [0, 0, 1, 0]
     ], dtype=np.float64)
     
-    Tx = -190.0 
+    Tx = -160.0
     P2 = np.array([
         [focal_length, 0, cx, focal_length * Tx],
         [0, focal_length, cy, 0],
