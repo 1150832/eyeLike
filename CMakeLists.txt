@@ -35,8 +35,8 @@ if(WIN32)
     target_link_libraries(eyelike PRIVATE iphlpapi ws2_32)
 endif()
 
-target_link_libraries(eyelike 
-    ${OpenCV_LIBS} 
+target_link_libraries(eyelike PRIVATE
+    ${OpenCV_LIBS}
     PahoMqttCpp::paho-mqttpp3
 )
 # ==========================================
