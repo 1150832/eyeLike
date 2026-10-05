@@ -268,12 +268,27 @@ int main( int argc, const char** argv ) {
       frame = cvQueryFrame( capture );
 #else
   cv::VideoCapture capture;
-  
-  // Open video source based on mode
   if (useCamera) {
-    capture.open(0);
+      capture.open(0, cv::CAP_V4L2);
+      capture.set(cv::CAP_PROP_FOURCC,cv::VideoWriter::fourcc('M','J','P','G'));
+      capture.set(cv::CAP_PROP_FRAME_WIDTH, 1280);
+      capture.set(cv::CAP_PROP_FRAME_HEIGHT, 720);
+      
+      if (!capture.isOpened()) {
+          capture.open(1, cv::CAP_V4L2);
+          capture.set(cv::CAP_PROP_FOURCC,cv::VideoWriter::fourcc('M','J','P','G'));
+          capture.set(cv::CAP_PROP_FRAME_WIDTH, 1280);
+          capture.set(cv::CAP_PROP_FRAME_HEIGHT, 720);
+      }
   } else {
-    capture.open(videoPath);
+      capture.open(videoPath);
+  }
+
+  // Opcional: Imprime no terminal a resolução negociada pela câmara
+  if (useCamera && capture.isOpened()) {
+      double w = capture.get(cv::CAP_PROP_FRAME_WIDTH);
+      double h = capture.get(cv::CAP_PROP_FRAME_HEIGHT);
+      std::cout << "[INFO] Câmara iniciada a: " << w << "x" << h << std::endl;
   }
   
   if( capture.isOpened() ) {
