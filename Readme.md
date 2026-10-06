@@ -1,4 +1,4 @@
-# eyeLike: Modular & Distributed 3D Eye-Tracking System
+# EyeTracker 3D: Modular & Distributed 3D Eye-Tracking System
 
 [![System Demonstration Video](https://img.youtube.com/vi/XuiCPCdbaDI/maxresdefault.jpg)](https://www.youtube.com/watch?v=XuiCPCdbaDI)
 
