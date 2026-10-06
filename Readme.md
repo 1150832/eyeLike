@@ -1,73 +1,117 @@
-## eyeLike
-An OpenCV based webcam gaze tracker based on a simple image gradient-based eye center algorithm by Fabian Timm.
+# eyeLike: Modular & Distributed 3D Eye-Tracking System
 
-*Note: This repository is currently being expanded as part of an MSc Thesis in Electrical and Computer Engineering at Instituto Superior de Engenharia do Porto (ISEP). The goal is the development of a modular, low-cost 3D EyeTracker system leveraging the eyelike functionality running in a modular architecture, such as a Raspberry Pi, using Image Analysis and Machine Learning. The tracking data is standardized and published via MQTT, allowing the module to work standalone for safety monitoring or in a cluster for 3D positioning evaluation.*
+[![System Demonstration Video](https://img.youtube.com/vi/XuiCPCdbaDI/maxresdefault.jpg)](https://www.youtube.com/watch?v=XuiCPCdbaDI)
 
-## DISCLAIMER
-**This does not track gaze yet.** It is basically just a developer reference implementation of Fabian Timm's algorithm that shows some debugging windows with points on your pupils.
+> 📺 **Demonstração Experimental / Video Showcase:** [https://www.youtube.com/watch?v=XuiCPCdbaDI](https://www.youtube.com/watch?v=XuiCPCdbaDI)
 
-If you want cheap gaze tracking and don't mind hardware check out [The Eye Tribe](https://theeyetribe.com/).
-If you want webcam-based eye tracking contact [Xlabs](http://xlabsgaze.com/) or use their chrome plugin and SDK.
-If you're looking for open source your only real bet is [Pupil](http://pupil-labs.com/) but that requires an expensive hardware headset.
+An OpenCV-based computer vision framework originally based on Fabian Timm's image gradient eye center localization algorithm, significantly re-engineered and extended into a **modular, low-cost distributed 3D eye-tracking architecture**.
 
-## Status
-The eye center tracking works well but I don't have a reference point like eye corner yet so it can't actually track
-where the user is looking.
+---
 
-Current version detects both eyes to improve 3d head tracking. Eyes position is presented in global image coordinates.
+### 🎓 Academic Context
+This repository forms the experimental framework developed as part of an **MSc Thesis in Electrical and Computer Engineering** at the **Instituto Superior de Engenharia do Porto (ISEP)**.
 
+The primary research objective is the development of a low-cost, distributed 3D tracking architecture. Edge computing nodes (e.g., Raspberry Pi 4 running via `libcamera`/GStreamer) and desktop nodes execute monocular 2D facial and sub-pixel pupil tracking, publishing standardized telemetry via **MQTT**. A centralized spatial fusion node ingests these asynchronous streams, synchronizing frames and reconstructing real-time 3D coordinates (X, Y, Z) using **Direct Linear Transformation (DLT)** and **Singular Value Decomposition (SVD)**.
 
-## Building
+---
 
-CMake is required to build eyeLike.
+## 📽️ Demonstration Breakdown
 
-### OSX or Linux with Make
+A complete recorded demonstration of the experimental validation pipeline is available on YouTube:
+* **Direct Link:** https://www.youtube.com/watch?v=XuiCPCdbaDI
+
+### Video Index:
+1. **Ground Truth Annotation Tool (`annotationTool`)**: Custom annotation interface with real-time gamma, contrast, and histogram equalization controls, enabling sub-pixel pupil labeling and occlusion flag logging.
+2. **Quantitative Benchmarking (`testEyeTracking`)**: Algorithmic evaluation against annotated datasets, reporting real-time Euclidean error metrics and blink/occlusion handling.
+3. **Monocular 2D Tracking & MQTT Telemetry**: Real-time pupil localization and sub-pixel gradient extraction integrated with Mosquitto broker telemetry streaming.
+4. **Distributed Stereo Architecture & 3D Spatial Fusion**: Heterogeneous edge-host synchronization (Raspberry Pi 4 + PC) executing temporal sliding-window pairing and 3D stereo triangulation.
+
+---
+
+## 🧩 System Architecture & Modules
+
+The repository is structured into four core modules:
+
+* **`eyeLike` (Core Tracking Node)**: Implements Viola-Jones Haar Cascade face detection and Timm & Barth gradient-based eye center localization. Features an integrated asynchronous Paho MQTT C++ publisher emitting structured JSON telemetry (`eyetracker/coordinates/{sensor_id}/eyes`).
+* **`annotationTool` (Ground Truth Annotation)**: Interactive tool developed to curate reference datasets, supporting dynamic brightness/contrast adaptation and frame status toggling.
+* **`testEyeTracking` (Accuracy Validation)**: Comparative testbench calculating per-frame pixel error (L2 distance) between algorithmic predictions and annotated ground truth.
+* **`tools/fuse_3d_mqtt.py` (Central 3D Fusion Engine)**: Python-based subscriber utilizing a temporal sliding-window queue to align telemetry packets from distributed nodes and solve the stereo DLT/SVD system (`cv2.triangulatePoints`), recording spatial data to CSV.
+
+---
+
+## ⚙️ Building & Execution
+
+CMake is required across all platforms.
+
+### 1. Raspberry Pi 4 (Raspberry Pi OS 64-bit)
+
+Running on embedded Linux requires interfacing with the modern `libcamera` stack and headless execution:
+
 ```bash
-# do things in the build directory so that we don't clog up the main directory
-mkdir build
-cd build
-cmake ../
+# Clone and build
+mkdir build && cd build
+cmake ..
+make -j4
+
+# Run with libcamerify wrapper (headless MQTT node)
+QT_QPA_PLATFORM=offscreen libcamerify ./eyelike --headless -c -m tcp://<BROKER_IP>:1883 --client-id rpi_node
+```
+
+Alternatively, invoke via GStreamer pipeline:
+```bash
+QT_QPA_PLATFORM=offscreen ./eyelike -v "libcamerasrc ! video/x-raw,width=640,height=480,framerate=30/1 ! videoconvert ! appsink" -m tcp://<BROKER_IP>:1883 --client-id rpi_node
+```
+
+### 2. Windows (MSVC + vcpkg)
+
+Requires Visual Studio C++ Build Tools, CMake, and local OpenCV 4.x.
+
+**Prerequisites & Dependencies:**
+1. Extract **OpenCV 4.x** to `C:\opencv`. Ensure `C:\opencv\build\x64\vc16\bin` is added to your system `Path`.
+2. Install `vcpkg` and the Eclipse Paho MQTT C++ library:
+```powershell
+cd ~
+git clone [https://github.com/microsoft/vcpkg.git](https://github.com/microsoft/vcpkg.git)
+cd vcpkg
+.\bootstrap-vcpkg.bat
+.\vcpkg install paho-mqttpp3:x64-windows
+```
+
+**Compilation:**
+Run the dedicated automated build script:
+```powershell
+.\scripts\win\cmakeBuild.bat
+```
+Binaries (`eyelike.exe`, `annotationTool.exe`, `testEyeTracking.exe`) will be generated inside `build\Release\`.
+
+### 3. Linux / macOS
+
+```bash
+mkdir build && cd build
+cmake ..
 make
-./bin/eyeLike # the executable file
+./bin/eyeLike
 ```
 
-### On OSX with XCode
+---
+
+## 📡 3D Telemetry Fusion Engine
+
+To execute the central 3D spatial triangulation node:
+
 ```bash
-mkdir build
-./cmakeBuild.sh
+# Install Python dependencies
+pip install paho-mqtt numpy opencv-python
+
+# Run the fusion engine
+python tools/fuse_3d_mqtt.py
 ```
-then open the XCode project in the build folder and run from there.
+Triangulated spatial vectors (X, Y, Z) and network delta timestamps (Delta T) are logged continuously to `test_reports/telemetry/3d_telemetry_log.csv`.
 
-### On Windows (MSVC)
+---
 
-The Windows environment requires a local installation of OpenCV and the use of `vcpkg` for the MQTT networking dependencies.
+## 📚 References & Academic Attribution
 
-**1. Prerequisites & Dependencies:**
-* Ensure Visual Studio C++ Build Tools and CMake are installed.
-* Extract **OpenCV 4.x** to `C:\opencv`. 
-  * *Critical:* You must add `C:\opencv\build\x64\vc16\bin` to your Windows `Path` Environment Variable so the system can locate the `.dll` files at runtime.
-* Install **vcpkg** and the Eclipse Paho MQTT C++ wrapper:
-  ```powershell
-  cd ~
-  git clone [https://github.com/microsoft/vcpkg.git](https://github.com/microsoft/vcpkg.git)
-  cd vcpkg
-  .\bootstrap-vcpkg.bat
-  .\vcpkg install paho-mqttpp3:x64-windows
-
-**2. Compilation:**
-* Adjust the VCPKG_ROOT path inside scripts\win\cmakeBuild.bat if your vcpkg is not installed in the default user directory.
-Then, run:
-  ```powershell
-  .\scripts\win\cmakeBuild.bat
-* The compiled binaries (eyelike.exe, annotationTool.exe, and testEyeTracking.exe) will be generated inside the build\Release folder, alongside the automatically linked MQTT .dll files.
-
-## Blog Article:
-- [Using Fabian Timm's Algorithm](http://thume.ca/projects/2012/11/04/simple-accurate-eye-center-tracking-in-opencv/)
-
-## Paper:
-Timm and Barth. Accurate eye centre localisation by means of gradients.
-In Proceedings of the Int. Conference on Computer Theory and
-Applications (VISAPP), volume 1, pages 125-130, Algarve, Portugal,
-2011. INSTICC.
-
-(also see youtube video at http://www.youtube.com/watch?feature=player_embedded&v=aGmGyFLQAFM)
+* **Timm and Barth (2011)**: Accurate eye centre localisation by means of gradients. In Proceedings of the Int. Conference on Computer Vision Theory and Applications (VISAPP), volume 1, pages 125-130, Algarve, Portugal. INSTICC.
+* **Original eyeLike Implementation**: Tristan Hume (http://thume.ca/projects/2012/11/04/simple-accurate-eye-center-tracking-in-opencv/).
+* **MSc Dissertation**: Low-cost Modular 3D Eye-Tracking System, Departamento de Engenharia Eletrotécnica, Instituto Superior de Engenharia do Porto (ISEP), 2026.
